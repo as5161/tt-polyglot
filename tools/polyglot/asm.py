@@ -119,7 +119,7 @@ def assemble(src, name="prog"):
     lines = []
     # pass 1: directives, labels, collect instruction lines
     for lineno, raw in enumerate(src.splitlines(), 1):
-        line = re.split(r"[;#]", raw, 1)[0].strip()
+        line = re.split(r"[;#]", raw, maxsplit=1)[0].strip()
         if not line:
             continue
         try:

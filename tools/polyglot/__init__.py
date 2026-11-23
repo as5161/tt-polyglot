@@ -1,4 +1,6 @@
-"""Polyglot protocol emulator toolchain: assembler, simulator, host driver."""
-from .asm import assemble, load_file, disassemble, AsmError  # noqa: F401
-from .sim import Cluster  # noqa: F401
-from .host import Host  # noqa: F401
+"""Polyglot protocol emulator toolchain.
+
+Modules: asm (assembler), sim (cycle-accurate golden model), run (simulator
+CLI), host (host driver).  Import them explicitly, e.g.
+``from polyglot import asm, sim``.
+"""
