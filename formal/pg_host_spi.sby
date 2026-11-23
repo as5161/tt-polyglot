@@ -1,0 +1,13 @@
+[options]
+mode prove
+depth 4
+
+[engines]
+smtbmc z3
+
+[script]
+read -formal pg_host_spi.v
+prep -top pg_host_spi
+
+[files]
+../src/pg_host_spi.v

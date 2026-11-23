@@ -1,0 +1,51 @@
+; USB 1.1 low-speed (1.5 Mbit/s) packet transmitter: NRZI encoding, bit
+; stuffing and EOP generation done in software.  uo4 = D+, uo5 = D-.
+; B ticks per bit (B = 40 at 60 MHz).  Push the packet as 16-bit words,
+; LSB first, starting with SYNC (0x80) + PID.  When the FIFO runs dry the
+; core sends EOP (SE0, SE0, J) and sets flag 1.
+.program usb_ls_tx
+.define B 40
+.clkdiv 1
+.out    uo4 2
+.set    uo4 2
+.in     uo4              ; reads back the driven D+/D- (NRZI toggle source)
+.shift  out right autopull 16
+    set pins, 2                  ; idle J (D+=0, D-=1)
+idle:
+    set y, 5                     ; ones remaining before a stuffed bit
+    pull                         ; wait for a packet
+.wrap_target
+bit:
+    jmp !osre go0                ; 0  bits left in OSR?
+    jmp txne go                  ; 1  more words queued?
+    jmp eop                      ; 2
+go0:
+    nop                          ; 1
+go:
+    out x, 1                     ; 2
+    jmp !x zero                  ; 3
+    jmp y-- one                  ; 4
+    nop             [31]         ; 5..36   sixth consecutive one: hold
+    nop             [6]          ; 37..43  (stuffed slot starts at 40)
+    mov pins, !pins              ; 44      NRZI toggle = stuffed 0
+    set y, 5        [31]         ; 45..76
+    nop             [1]          ; 77..78
+    jmp bit                      ; 79
+one:
+    nop             [31]         ; 5..36   hold line
+    nop             [1]          ; 37..38
+    jmp bit                      ; 39
+zero:
+    mov pins, !pins              ; 4       NRZI toggle
+    set y, 5        [31]         ; 5..36
+    nop             [2]          ; 37..39
+.wrap
+eop:
+    set pins, 0     [31]
+    nop             [7]         ; SE0 (2 bit times)
+    set pins, 0     [31]
+    nop             [7]
+    set pins, 2     [31]         ; J
+    nop             [7]
+    flag set 1                   ; packet sent
+    jmp idle

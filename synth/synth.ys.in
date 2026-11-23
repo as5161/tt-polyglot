@@ -1,0 +1,10 @@
+# Area estimate + gate-level netlist (the official GDS comes from the
+# Tiny Tapeout LibreLane flow; this is for early sizing and GL simulation)
+read_verilog ../src/project.v ../src/pg_host_spi.v ../src/pg_cluster.v ../src/pg_core.v ../src/pg_fifo.v
+synth -top tt_um_polyglot -flatten
+dfflibmap -liberty @LIB@
+abc -D 20000 -liberty @LIB@
+opt_clean
+hilomap -hicell sg13cmos5l_tiehi L_HI -locell sg13cmos5l_tielo L_LO
+stat -liberty @LIB@
+write_verilog -noattr gate_level_netlist.v

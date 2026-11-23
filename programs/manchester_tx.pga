@@ -1,0 +1,17 @@
+; IEEE 802.3 Manchester encoder on a differential pair (10BASE-T style).
+; uo2 = TD+, uo3 = TD-.  6 ticks per bit: 10 Mbit/s at a 60 MHz clock.
+; '1' = low->high at mid-bit, '0' = high->low.  LSB first, 16-bit words.
+.program manchester_tx
+.clkdiv 1
+.side   uo2 2            ; bit0 = TD+, bit1 = TD-
+.shift  out right autopull 16
+.wrap_target
+top:
+    out x, 1                     ; (second half of previous bit continues)
+    jmp !x zero
+    nop             side 2 [2]   ; '1': first half low
+    jmp top         side 1       ;      mid-bit rising edge
+zero:
+    nop             side 1 [2]   ; '0': first half high
+    nop             side 2       ;      mid-bit falling edge
+.wrap

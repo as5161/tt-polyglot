@@ -1,0 +1,15 @@
+; WS2812 / NeoPixel driver on uo1 - a protocol the chip was never designed for.
+; 12 ticks per bit at 10 MHz (clkdiv 6 at 60 MHz): T0H 400 ns, T1H 800 ns.
+; Push 16-bit words, MSB first (GRB stream).  Empty FIFO => line low => latch.
+.program ws2812
+.clkdiv 6
+.side   uo1 1
+.shift  out left autopull 16
+.wrap_target
+bit:
+    out x, 1        side 0 [3]
+    jmp !x zero     side 1 [3]
+    jmp bit         side 1 [3]
+zero:
+    nop             side 0 [3]
+.wrap

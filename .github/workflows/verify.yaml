@@ -1,0 +1,45 @@
+name: verify
+# Co-simulation against the golden model, mutation testing and formal proofs.
+on: [push, workflow_dispatch]
+jobs:
+  cosim:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      - run: sudo apt-get update && sudo apt-get install -y iverilog
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+      - name: Lock-step co-simulation (RTL vs ISS)
+        run: python3 test/cosim/run_cosim.py --seeds 100 --cycles 4000 --cov
+      - name: Mutation testing (every injected bug must be caught)
+        run: python3 test/cosim/mutate.py 12
+  formal:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+      - name: Install yosys / sby / z3 (YoWASP)
+        run: |
+          pip install yowasp-yosys z3-solver
+          mkdir -p $HOME/bin
+          for t in yosys yosys-smtbmc yosys-abc; do printf '#!/bin/sh\nexec yowasp-%s "$@"\n' $t > $HOME/bin/$t; chmod +x $HOME/bin/$t; done
+          echo "$HOME/bin" >> $GITHUB_PATH
+      - name: Prove (k-induction)
+        run: |
+          cd formal
+          for m in pg_core pg_fifo pg_host_spi; do yowasp-sby -f $m.sby; done
+  asm:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+      - name: Assemble all example programs
+        run: |
+          cd tools
+          for f in ../programs/*.pga; do python3 -m polyglot.asm "$f" > /dev/null; done
+          python3 -m polyglot.run ../programs/uart_tx.pga --push 0x41 --cycles 2000

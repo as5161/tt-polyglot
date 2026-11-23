@@ -1,0 +1,41 @@
+; I2C master (open-drain, clock stretching, repeated START).
+; uio4 = SCL, uio5 = SDA (external pull-ups on a Pmod).
+; TX word: bit15 START-before, bit14 STOP-after, bits13:5 = 9 bits on the wire
+;          (data[7:0] then ACK bit; write: ack=1 releases SDA, read: data=0xFF,
+;           ack=0 => ACK, 1 => NACK).
+; RX word: 9 bits sampled (data << 1 | ack).  0 in bit 0 after a write = ACKed.
+; 14 ticks per bit: clkdiv 43 => 100 kHz at 60 MHz.
+.program i2c_master
+.clkdiv 43
+.opendrain
+.define SCL 4
+.side    uio4 1          ; SCL  (1 = released)
+.set     uio5 1          ; SDA
+.out     uio5 1
+.in      uio5
+.shift   out left
+.shift   in left autopush 9
+.wrap_target
+top:
+    pull                         ; no side-set: SCL stays where it is
+    out x, 1                     ; START flag
+    out y, 1                     ; STOP flag
+    jmp !x byte
+    set pins, 1     side 0 [3]   ; (repeated) START: release SDA with SCL low
+    nop             side 1 [3]   ; SCL high
+    wait 1 gpio SCL
+    set pins, 0     side 1 [3]   ; SDA falls while SCL high
+byte:
+    set x, 8        side 0       ; 9 bits
+bit:
+    out pins, 1     side 0 [5]   ; SDA changes one tick after SCL fell
+    nop             side 1       ; release SCL
+    wait 1 gpio SCL              ; clock stretching
+    in pins, 1             [4]   ; sample SDA while SCL high
+    jmp x-- bit     side 0       ; SCL low
+    jmp !y top      side 0 [3]   ; no STOP: hold SCL low between bytes
+    set pins, 0     side 0 [3]   ; STOP: SDA low, SCL high, SDA high
+    nop             side 1 [3]
+    wait 1 gpio SCL
+    set pins, 1     side 1 [3]
+.wrap

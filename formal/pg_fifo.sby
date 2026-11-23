@@ -1,0 +1,13 @@
+[options]
+mode prove
+depth 4
+
+[engines]
+smtbmc z3
+
+[script]
+read -formal pg_fifo.v
+prep -top pg_fifo
+
+[files]
+../src/pg_fifo.v

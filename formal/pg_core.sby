@@ -1,0 +1,13 @@
+[options]
+mode prove
+depth 4
+
+[engines]
+smtbmc z3
+
+[script]
+read -formal pg_core.v
+prep -top pg_core
+
+[files]
+../src/pg_core.v

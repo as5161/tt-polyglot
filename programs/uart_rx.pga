@@ -1,0 +1,20 @@
+; UART receiver, 8N1, LSB first.  RX on ui0.  Bit time = 8 ticks.
+; Received bytes are auto-pushed right-justified.  A framing error sets flag 0.
+.program uart_rx
+.clkdiv 65
+.in      ui0
+.jmp_pin ui0
+.shift   in right autopush 8
+.wrap_target
+start:
+    wait 0 pin 0                 ; falling edge = start bit
+    set x, 7        [10]         ; 11 ticks -> centre of bit 0 (12 after edge)
+bit:
+    in pins, 1                   ; sample
+    jmp x-- bit     [6]
+    jmp !pin bad                 ; stop bit must be high (byte already pushed)
+.wrap
+bad:
+    flag set 0                   ; framing error
+    wait 1 pin 0                 ; wait for idle line
+    jmp start

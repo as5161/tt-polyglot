@@ -1,0 +1,24 @@
+; UART receiver with hardware CRC-16/MODBUS over every received data bit.
+; Identical to uart_rx plus one .crc line: the CRC unit taps the 1-bit IN
+; shifts, so after a frame the CRC register holds the Modbus CRC
+; (host reads it at 0xB4+core; a frame including its CRC leaves 0).
+.program modbus_rx
+.clkdiv 65
+.in      ui0
+.jmp_pin ui0
+.shift   in right autopush 8
+.crc     0xA001 reflect in       ; CRC-16/MODBUS, poly 0x8005 reflected
+    mov crc, !null               ; init 0xFFFF
+.wrap_target
+start:
+    wait 0 pin 0
+    set x, 7        [10]
+bit:
+    in pins, 1
+    jmp x-- bit     [6]
+    jmp !pin bad                 ; stop bit must be high (byte already pushed)
+.wrap
+bad:
+    flag set 0
+    wait 1 pin 0
+    jmp start

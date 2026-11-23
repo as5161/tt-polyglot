@@ -1,0 +1,14 @@
+; UART transmitter, 8N1, LSB first.  TX on uo0.
+; Bit time = 8 ticks.  clkdiv = f_clk / (8 * baud)   (60 MHz, 115200 -> 65)
+.program uart_tx
+.clkdiv 65
+.side   uo0 1            ; side-set drives TX
+.out    uo0 1
+.shift  out right        ; LSB first
+.wrap_target
+    pull            side 1 [7]   ; stop bit / idle high, wait for a byte
+    set x, 7        side 0 [7]   ; start bit
+bit:
+    out pins, 1                  ; data bit
+    jmp x-- bit            [6]
+.wrap

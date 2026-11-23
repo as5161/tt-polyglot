@@ -1,0 +1,29 @@
+; SPI master, mode 0, MSB first, 8-bit, full duplex, automatic chip select.
+; uio0 = SCK, uio1 = CS_n, uio2 = MOSI, uio3 = MISO.  4 ticks per bit (clkdiv 4 => 3.75 MHz at 60 MHz).
+; Push bytes (low 8 bits) to TX; one received byte is pushed per byte sent.
+; CS_n stays low while the TX FIFO has data, so back-to-back pushes form one
+; transaction.
+.program spi_master
+.clkdiv 4
+.side   uio0 2           ; side bit0 = SCK, bit1 = CS_n
+.set    uio0 3
+.out    uio2 1
+.in     uio3
+.shift  out left         ; MSB first
+.shift  in left
+    set pindirs, 7  side 2       ; SCK, CS_n, MOSI outputs
+.wrap_target
+    pull            side 2       ; idle: CS_n high, SCK low
+next:
+    out null, 8     side 0       ; assert CS_n, drop the unused high byte
+    set x, 7        side 0
+bit:
+    out pins, 1     side 0 [1]   ; MOSI changes while SCK low
+    in pins, 1      side 1       ; rising edge: sample MISO
+    jmp x-- bit     side 1
+    push            side 0
+    jmp txne more   side 0
+.wrap
+more:
+    pull            side 0
+    jmp next        side 0
