@@ -14,7 +14,11 @@
   "//": "PL_TARGET_DENSITY_PCT - You can increase this if Global Placement fails with error GPL-0302.",
   "//": "Users have reported that values up to 80 worked well for them.",
   "PL_TARGET_DENSITY_PCT": 75,
-  "PL_ROUTABILITY_DRIVEN": 0,
+
+  "//": "Keep the IHP I/O pad cells out of synthesis: the pad library lists them as buffers",
+  "//": "and the mapper picked 4 huge output pads as strong drivers, which can never be placed.",
+  "EXTRA_EXCLUDED_CELLS": ["sg13cmos5l_IOPad*"],
+
   "//": "CLOCK_PERIOD - Increase this in case you are getting setup time violations.",
   "//": "The value is in nanoseconds, so 20ns == 50MHz.",
   "CLOCK_PERIOD": 20,
