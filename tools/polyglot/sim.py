@@ -407,7 +407,7 @@ class Cluster:
 
     ID = 0x504701
 
-    def __init__(self, aw=5, nc=4):
+    def __init__(self, aw=5, nc=3):
         self.aw = aw
         self.nc = nc
         self.imem = [None] * (1 << aw)
@@ -423,6 +423,8 @@ class Cluster:
         if addr < 0x80:
             return self.imem[addr] if addr < (1 << self.aw) else 0
         if 0x80 <= addr < 0xA0:
+            if (addr >> 3) & 3 >= self.nc:
+                return 0          # empty core slot
             core = self.cores[(addr >> 3) & 3]
             c = core.cfg
             n = addr & 7
@@ -448,6 +450,8 @@ class Cluster:
             return self.flags
         if addr == 0xA3:
             v = 0
+            for i in range(self.nc, 4):                     # empty slots read "empty"
+                v |= 1 << (4 + i) | 1 << (12 + i)
             for i, core in enumerate(self.cores):
                 v |= core.tx.full << i
                 v |= core.tx.empty << (4 + i)
@@ -461,13 +465,13 @@ class Cluster:
         if addr == 0xA6:
             return self.timer
         if 0xA8 <= addr < 0xAC:
-            return self.cores[addr & 3].cfg.poly
+            return self.cores[addr & 3].cfg.poly if (addr & 3) < self.nc else 0
         if 0xAC <= addr < 0xB0:
-            return self.cores[addr & 3].x
+            return self.cores[addr & 3].x if (addr & 3) < self.nc else 0
         if 0xB0 <= addr < 0xB4:
-            return self.cores[addr & 3].y
+            return self.cores[addr & 3].y if (addr & 3) < self.nc else 0
         if 0xB4 <= addr < 0xB8:
-            return self.cores[addr & 3].crc
+            return self.cores[addr & 3].crc if (addr & 3) < self.nc else 0
         return 0
 
     # ------------------------------------------------------------------ one clock

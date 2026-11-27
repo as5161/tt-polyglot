@@ -50,7 +50,7 @@ consumed only after the master has clocked out the **complete** 24-bit word
 | `0xA8 + c` | `POLY` | R/W | CRC polynomial for core c |
 | `0xAC + c` / `0xB0 + c` / `0xB4 + c` | `X` / `Y` / `CRC` | R | debug read-back |
 
-`c` = core 0..3. `DIVSYNC` + `EN` in a single write starts several cores on
+`c` = core 0..2 (register slot 3 exists but has no core: it reads 0 and ignores writes). `DIVSYNC` + `EN` in a single write starts several cores on
 the same cycle, phase-locked (used for multi-lane protocols).
 
 ## Debugging on silicon

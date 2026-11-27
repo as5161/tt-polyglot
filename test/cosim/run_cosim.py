@@ -22,9 +22,10 @@ from polyglot.sim import Cluster  # noqa: E402
 from polyglot.asm import disassemble  # noqa: E402
 
 DEPTH = 32  # IMEM words (AW=5)
+NC = 3      # cores (project.v)
 SRC = ["pg_cluster.v", "pg_core.v", "pg_fifo.v"]
 FIELDS = ["hrdata", "pout", "poe", "flags", "en"] + [
-    f"c{i}.{n}" for i in range(4) for n in
+    f"c{i}.{n}" for i in range(NC) for n in
     ("pc", "x", "y", "isr", "osr", "crc", "isr_cnt", "osr_cnt", "dly", "tx_cnt", "rx_cnt", "exec_pend", "rx_head")]
 
 

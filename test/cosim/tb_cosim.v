@@ -12,7 +12,7 @@ module tb_cosim;
   wire [23:0] hrdata;
   wire [15:0] pout, poe;
 
-  pg_cluster #(.AW(5), .NC(4)) u (
+  pg_cluster #(.AW(5), .NC(3)) u (
     .clk(clk), .rst_n(rst_n), .hw_en(hw_en), .hr_en(hr_en), .haddr(haddr),
     .hwdata(hwdata), .hrdata(hrdata), .pins_in(pins), .pout(pout), .poe(poe));
 
@@ -39,13 +39,11 @@ module tb_cosim;
       $fwrite(f, "%h %h %h %h %h", rd, pout, poe, u.flags, u.en);
       $fwrite(f, " %h %h %h %h %h %h %h %h %h %h %h %h %h", `CORE(0));
       $fwrite(f, " %h %h %h %h %h %h %h %h %h %h %h %h %h", `CORE(1));
-      $fwrite(f, " %h %h %h %h %h %h %h %h %h %h %h %h %h", `CORE(2));
-      $fwrite(f, " %h %h %h %h %h %h %h %h %h %h %h %h %h\n", `CORE(3));
+      $fwrite(f, " %h %h %h %h %h %h %h %h %h %h %h %h %h\n", `CORE(2));
       // fetch-pipeline invariant: every core's IR equals imem[pc]
       if (u.g_core[0].u_core.ir_q !== u.imem[u.g_core[0].u_core.pc] && ^u.imem[u.g_core[0].u_core.pc] !== 1'bx) $fwrite(f, "IRFAIL\n");
       if (u.g_core[1].u_core.ir_q !== u.imem[u.g_core[1].u_core.pc] && ^u.imem[u.g_core[1].u_core.pc] !== 1'bx) $fwrite(f, "IRFAIL\n");
       if (u.g_core[2].u_core.ir_q !== u.imem[u.g_core[2].u_core.pc] && ^u.imem[u.g_core[2].u_core.pc] !== 1'bx) $fwrite(f, "IRFAIL\n");
-      if (u.g_core[3].u_core.ir_q !== u.imem[u.g_core[3].u_core.pc] && ^u.imem[u.g_core[3].u_core.pc] !== 1'bx) $fwrite(f, "IRFAIL\n");
       #4 clk = 0;
     end
     $fclose(f);

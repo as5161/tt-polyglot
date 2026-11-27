@@ -54,7 +54,7 @@ MUTANTS = [
 
 
 def main():
-    seeds = int(sys.argv[1]) if len(sys.argv) > 1 else 20
+    seeds = int(sys.argv[1]) if len(sys.argv) > 1 else 30
     survived = 0
     tested = 0
     for fname, old, new, desc in MUTANTS:

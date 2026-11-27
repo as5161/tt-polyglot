@@ -522,9 +522,10 @@ async def test_usb_lowspeed_tx(dut):
 
 
 @cocotb.test()
-async def test_four_protocols_at_once(dut):
-    """UART TX, SPI master, WS2812 and a runtime-written pulse meter run
-    concurrently on the four cores."""
+async def test_three_protocols_at_once(dut):
+    """UART TX, SPI master and a runtime-written pulse meter run
+    concurrently on the three cores; WS2812 is reloaded on core 2 afterwards
+    to show a core being re-purposed while the others keep running."""
     chip = await setup(dut)
     pulse = asm.assemble("""
         .program pulse_meter      ; written at test time: measures high pulses on ui1
@@ -542,24 +543,50 @@ async def test_four_protocols_at_once(dut):
     """)
     await chip.load(prog("uart_tx", clkdiv=2), 0)
     await chip.load(prog("spi_master"), 1)
-    await chip.load(prog("ws2812", clkdiv=1), 2)
-    await chip.load(pulse, 3)
-    await chip.start(0xF)
+    await chip.load(pulse, 2)
+    await chip.start(0x7)
     log = []
     cocotb.start_soon(spi_slave(dut, [0x11, 0x22], log))
     got = []
     mon = cocotb.start_soon(uart_rx_monitor(dut, 0, 16, 3, got))
     await chip.push(0, *b"abc")
     await chip.push(1, 0x55, 0xAA)
-    await chip.push(2, 0xF0F0)
     for width in (40, 100):
         chip.set_ui(1, 1)
         await ClockCycles(dut.clk, width)
         chip.set_ui(1, 0)
         await ClockCycles(dut.clk, 30)
-    widths = await chip.pop_n(3, 2)
+    widths = await chip.pop_n(2, 2)
     spi = await chip.pop_n(1, 2)
     await mon
     assert bytes(got) == b"abc"
     assert log == [0x55, 0xAA] and spi == [0x11, 0x22]
     assert [abs(w * 2 - t) <= 3 for w, t in zip(widths, (40, 100))] == [True, True], widths
+    # re-purpose core 2 as a WS2812 driver while cores 0 and 1 stay enabled
+    await chip.write(H.R_CTRL, 0x3)                     # stop core 2 only
+    await chip.load(prog("ws2812", clkdiv=1), 2, origin=chip.next_origin - len(pulse.words))
+    await chip.push(2, 0xA5A5)
+    tr = []
+    rec = cocotb.start_soon(record(dut, 12 * 16 + 1200, lambda o: (o >> 1) & 1, tr))
+    await chip.write(H.R_CTRL, 0x7 | 0x4 << 4 | 0x4 << 8)   # restart core 2, keep 0-1 running
+    await rec
+    highs, n = [], 0
+    for v in tr:
+        if v:
+            n += 1
+        elif n:
+            highs.append(n)
+            n = 0
+    bits = [1 if h >= 6 else 0 for h in highs]
+    assert int("".join(map(str, bits[:16])), 2) == 0xA5A5, bits
+
+
+@cocotb.test()
+async def test_missing_core_slot(dut):
+    """Register slot 3 has no core: it reads 0, its FIFO reports empty."""
+    chip = await setup(dut)
+    await chip.write(H.creg(3, 0), 0x1234)
+    assert await chip.read(H.creg(3, 0)) == 0
+    assert await chip.pop(3) is None
+    st = await chip.read(H.R_FIFOSTAT)
+    assert (st >> 7) & 1 and (st >> 15) & 1 and not (st >> 3) & 1

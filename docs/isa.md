@@ -1,6 +1,6 @@
 # Polyglot instruction set
 
-Polyglot has **four identical cores** sharing a **32 x 24-bit instruction memory**, the same budget as one Raspberry Pi RP2040 PIO block.
+Polyglot has **three identical cores** sharing a **32 x 24-bit instruction memory**, the same budget as one Raspberry Pi RP2040 PIO block.
 Each core is a tiny processor whose only job is to move bits between pins and
 FIFOs at exactly the right clock cycle.
 

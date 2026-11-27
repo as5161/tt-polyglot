@@ -16,6 +16,7 @@
  *        n=6 PC        W: jump           R: current PC
  *        n=7 EXEC      W: execute word immediately   R: core status
  *   0xA0 CTRL      W: EN[3:0] RESTART[7:4] DIVSYNC[11:8] FIFOCLR[15:12]   R: EN
+ *   (NC = number of cores, 3 in project.v; bits/registers of missing cores are ignored / read 0)
  *   0xA1 STEP      W: single-step mask[3:0]
  *   0xA2 FLAGS     R/W [7:0]
  *   0xA3 FIFOSTAT  R: TXFULL[3:0] TXEMPTY[7:4] RXFULL[11:8] RXEMPTY[15:12]
@@ -68,18 +69,20 @@ module pg_cluster #(
   end
 
   // ------------------------------------------------------------ per-core
+  // The register map always has 4 core slots (NC may be 1..4).  Slots
+  // without a core read as 0, and their FIFOs report "empty".
   wire [31:0] c_pvm [0:NC-1];
   wire [31:0] c_pvv [0:NC-1];
   wire [31:0] c_pdm [0:NC-1];
   wire [31:0] c_pdv [0:NC-1];
   wire [7:0]  c_fset [0:NC-1];
   wire [7:0]  c_fclr [0:NC-1];
-  wire [23:0] c_rd   [0:NC-1];     // per-core host read data (n = 0..7)
-  wire [15:0] c_x [0:NC-1];
-  wire [15:0] c_y [0:NC-1];
-  wire [15:0] c_crc [0:NC-1];
-  wire [15:0] c_poly [0:NC-1];
-  wire [NC-1:0] tx_full_v, tx_empty_v, rx_full_v, rx_empty_v;
+  wire [23:0] c_rd   [0:3];        // per-core host read data (n = 0..7)
+  wire [15:0] c_x [0:3];
+  wire [15:0] c_y [0:3];
+  wire [15:0] c_crc [0:3];
+  wire [15:0] c_poly [0:3];
+  wire [3:0]  tx_full_v, tx_empty_v, rx_full_v, rx_empty_v;
 
   genvar c;
   generate
@@ -224,6 +227,21 @@ module pg_cluster #(
         endcase
       end
       assign c_rd[c] = rd;
+    end
+  endgenerate
+
+  genvar u;
+  generate
+    for (u = NC; u < 4; u = u + 1) begin : g_absent
+      assign c_rd[u]   = 24'h0;
+      assign c_x[u]    = 16'h0;
+      assign c_y[u]    = 16'h0;
+      assign c_crc[u]  = 16'h0;
+      assign c_poly[u] = 16'h0;
+      assign tx_full_v[u]  = 1'b0;
+      assign tx_empty_v[u] = 1'b1;
+      assign rx_full_v[u]  = 1'b0;
+      assign rx_empty_v[u] = 1'b1;
     end
   endgenerate
 

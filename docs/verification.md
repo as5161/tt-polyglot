@@ -35,7 +35,7 @@ Six layers, each catching a different class of bug:
 
 * a random 32-word program (plus writes to the unmapped addresses 32-63), biased towards valid encodings, with 3% fully
   random words so reserved opcodes and odd field values are covered;
-* random configuration of all four cores (dividers, wraps, shift directions,
+* random configuration of all three cores (plus writes to the empty fourth register slot) (dividers, wraps, shift directions,
   thresholds, CRC, open-drain, pin bases);
 * random host traffic **every cycle** at a per-seed rate: FIFO pushes and pops,
   register reads with side effects, `EXEC` injection, PC writes, `CTRL`
@@ -55,7 +55,7 @@ opcodes) and force pin-range overlaps on a quarter of seeds. Both changes
 were added because mutation testing found holes (see 3).
 
 **Result on the final RTL:** 500 seeds x 5,000 cycles = **2.5 M cycles**
-(x4 cores) with zero mismatches, 55/55 opcode/variant coverage bins hit.
+(x3 cores, final design) with zero mismatches, 55/55 opcode/variant coverage bins hit.
 Earlier RTL revisions passed a further 700 seeds (3.5 M cycles). A 40-seed
 smoke run follows every RTL edit.
 
@@ -66,7 +66,7 @@ instruction types stalled:
 
 ```
 coverage: 55/55 opcode/variant bins hit
-  stall events by opcode: {'wait': 782494, 'in': 113572, 'out': 176545, 'push/pull': 259985}
+  stall events by opcode: {'out': 159348, 'wait': 536813, 'push/pull': 130562, 'in': 78288}
 cosim: 500/500 seeds passed, 2500000 cycles compared
 ```
 
@@ -133,7 +133,8 @@ Python protocol models then check the pins:
 | WS2812 | high-pulse widths exactly 4 / 8 ticks, 48 bits decoded |
 | Manchester / 10BASE-T | TD+/TD- complementary, a mid-bit transition on every bit, 48 bits decoded at **6 clocks/bit (10 Mbit/s at 60 MHz)** |
 | USB low-speed TX | NRZI decode, **bit-stuffing** (0xFFFF payload), CRC16, EOP = 2 bits SE0 then J, done flag |
-| four protocols at once | UART + SPI + WS2812 + a pulse meter **written inside the test** run concurrently on all four cores |
+| three protocols at once | UART + SPI + a pulse meter **written inside the test** run concurrently on the three cores, then core 2 is stopped, reloaded as a WS2812 driver and restarted while the others keep running |
+| empty core slot | register slot 3 has no core: reads 0, FIFO reports empty |
 
 ### Bugs found by the protocol tests
 
@@ -152,7 +153,7 @@ Python protocol models then check the pins:
 ## 6. Gate-level simulation
 
 `synth/synth.ys` maps the design onto the IHP `sg13cmos5l` standard-cell
-library, and the **entire cocotb suite passes on that netlist** (9/9).
+library, and the **entire cocotb suite passes on that netlist** (10/10).
 Icarus 12 does not drive the `delayed_*` nets of the IHP cell models, so
 `tools/gl/make_functional_models.sh` makes a functional copy for local runs.
 CI's `gl_test` job additionally runs the suite on the final LibreLane
@@ -162,9 +163,9 @@ netlist.
 
 | metric | value |
 |---|---|
-| cells (IHP CMOS5L, typ, Yosys) | ~25,400 |
-| flip-flops | 2,567 |
-| cell area | 354,000 um^2 in Yosys (the real flow is larger, see below) |
+| cells (IHP CMOS5L, typ, Yosys) | ~19,800 |
+| flip-flops | 2,162 |
+| cell area | 287,000 um^2 in Yosys (the real flow is about 1.65x larger, see below) |
 | timing estimate (`tools/gl/mini_sta.py`, NLDM, x1 cells, buffer-tree model) | 12.8 ns typical (~78 MHz), 20.1 ns slow corner (~50 MHz) |
 | flow target | `CLOCK_PERIOD` 20 ns (50 MHz). Upsizing in OpenROAD should improve on the x1-cell estimate |
 
@@ -195,9 +196,12 @@ its first runs failed. Each failure taught something:
 | 1-2 | `GPL-0302 target density too low`, then `GRT-0010 Instance _061735_ is not placed` | the IHP I/O pad library is passed to synthesis, and its output pads (`IOPadOut4mA/16mA/30mA`) are described as plain buffers without `dont_use`. ABC picked four 120 x 120 um pads as strong drivers for high-fanout nets; they can never be placed in a standard-cell row | `"EXTRA_EXCLUDED_CELLS": ["sg13cmos5l_IOPad*"]` in `src/config.json` |
 | 3 | placement now completes, but at **67% utilization** (55,364 cells, 764,000 um^2), far above the 40% the quick Yosys estimate suggested | LibreLane's synthesis and buffering produce a much larger netlist than a bare `synth; abc` | instruction memory halved from 64 to 32 words (-23% area, same budget as an RP2040 PIO block); placement density back to the default 60% |
 | 4-5 | log stops at line 19,322 and the step runs for hours | most likely not a hang (identical code passed this point in seconds in runs 1-3): the live log shows output in buffered chunks while detailed routing of a 67%-full design on three routing layers runs very slowly | the area reduction above |
+| 7 | 32-word IMEM: placement **44.9%**, no setup violations at 20 ns, 0 antenna violations after repair, but global-routing usage 76% with **Metal3 (the only horizontal layer) at 104%**, and 102,358 violations after 90% of the first detailed-routing pass | the die is 2.4x wider than tall and the flow routes signals only on Metal2-Metal4, so all horizontal wiring shares Metal3 | 3 cores instead of 4: another -19% of logic and one less IMEM read path |
 
-Lesson: early area estimates from a plain Yosys run were 1.65x optimistic for
-this flow. Budget for that from the start.
+Lessons: early area estimates from a plain Yosys run were 1.65x optimistic for
+this flow, and on this stack the real budget is horizontal wiring, not cell
+area. A cancelled run still publishes its full log, which is how the routing
+statistics above were obtained.
 
 ## How to run everything
 
