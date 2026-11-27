@@ -104,7 +104,7 @@ class CoreCfg:
 
 
 class Core:
-    def __init__(self, aw=5):
+    def __init__(self, aw=7):
         self.aw = aw
         self.cfg = CoreCfg(aw)
         self.pc = 0
@@ -405,12 +405,16 @@ class Core:
 class Cluster:
     """Bit/cycle-exact model of pg_cluster."""
 
-    ID = 0x504701
+    ID = 0x504702
+    BANK_BASE = 0x400          # IMEM of core c: BANK_BASE + 0x100 * c + word
 
-    def __init__(self, aw=5, nc=3):
+    def __init__(self, aw=7, nc=4):
         self.aw = aw
         self.nc = nc
-        self.imem = [None] * (1 << aw)
+        # one 256-word bank per core slot; dout = the bank's output register,
+        # which is the core's fetch register (it holds bank[pc])
+        self.banks = [[0] * 256 for _ in range(4)]
+        self.dout = [0] * 4
         self.cores = [Core(aw) for _ in range(nc)]
         self.en = 0
         self.flags = 0
@@ -418,10 +422,22 @@ class Cluster:
         self.pout = 0
         self.poe = 0
 
+    def imem_slot(self, addr):
+        """(bank, word) if addr is an IMEM word, else None."""
+        if (addr >> 10) == 1 and (addr & 0xFF) < (1 << self.aw):
+            return (addr >> 8) & 3, addr & 0xFF
+        return None
+
     # ------------------------------------------------------------------ host read
     def read(self, addr, pins):
+        im = self.imem_slot(addr)
+        if im is not None:
+            b = im[0]
+            return self.dout[b] if b < self.nc and not (self.en >> b) & 1 else 0
+        if addr >> 8:
+            return 0
         if addr < 0x80:
-            return self.imem[addr] if addr < (1 << self.aw) else 0
+            return 0
         if 0x80 <= addr < 0xA0:
             if (addr >> 3) & 3 >= self.nc:
                 return 0          # empty core slot
@@ -475,8 +491,9 @@ class Cluster:
         return 0
 
     # ------------------------------------------------------------------ one clock
-    def cycle(self, hw_en=0, hr_en=0, haddr=0, hwdata=0, pins=0):
+    def cycle(self, hw_en=0, hr_en=0, haddr=0, hwdata=0, pins=0, hr_peek=0):
         rdata = self.read(haddr, pins)
+        en_now = self.en
         w = lambda a: hw_en and haddr == a  # noqa: E731
         w_ctrl, w_step, w_flags = w(0xA0), w(0xA1), w(0xA2)
 
@@ -486,8 +503,7 @@ class Cluster:
             div_tick = bool((self.en >> i) & 1) and core.divcnt == 0
             step = w_step and (hwdata >> i) & 1
             tick = bool(div_tick or step)
-            imw = self.imem[core.pc]
-            st = core.evaluate(tick, imw if imw is not None else 0, pins, self.flags, self.timer)
+            st = core.evaluate(tick, self.dout[i], pins, self.flags, self.timer)
             effects.append(st)
 
         # flags & pins
@@ -551,8 +567,17 @@ class Cluster:
             if w(0xA8 + i):
                 c.poly = hwdata & 0xFFFF
 
-        if hw_en and haddr < 0x80 and haddr < (1 << self.aw):
-            self.imem[haddr] = hwdata & 0xFFFFFF
+        # instruction banks: the host owns a stopped core's port for a write or
+        # a read peek; otherwise every bank fetches bank[pc_next] (= new pc)
+        im = self.imem_slot(haddr)
+        for i, core in enumerate(self.cores):
+            host = im is not None and im[0] == i and not (en_now >> i) & 1
+            if host and hw_en:
+                self.banks[i][im[1]] = hwdata & 0xFFFFFF
+            elif host and hr_peek:
+                self.dout[i] = self.banks[i][im[1]]
+            else:
+                self.dout[i] = self.banks[i][core.pc]
         self.timer = (self.timer + 1) & 0xFFFF
         if w_ctrl:
             self.en = hwdata & ((1 << self.nc) - 1)
@@ -563,7 +588,7 @@ class Cluster:
     def snapshot(self):
         """Architectural state compared against the RTL every cycle."""
         s = [self.pout, self.poe, self.flags, self.en]
-        for c in self.cores:
+        for i, c in enumerate(self.cores):
             s += [c.pc, c.x, c.y, c.isr, c.osr, c.crc, c.isr_cnt, c.osr_cnt, c.dly,
-                  c.tx.cnt, c.rx.cnt, c.exec_pend, 0 if c.rx.empty else c.rx.head]
+                  c.tx.cnt, c.rx.cnt, c.exec_pend, 0 if c.rx.empty else c.rx.head, self.dout[i]]
         return s

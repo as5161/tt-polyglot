@@ -41,7 +41,7 @@ MOV_SRC = {"pins": 0, "x": 1, "y": 2, "null": 3, "crc": 4, "time": 5, "isr": 6, 
            "status": 8}
 SET_DST = {"pins": 0, "x": 1, "y": 2, "crc": 3, "pindirs": 4, "xh": 5, "yh": 6}
 
-IMEM_WORDS = 32   # must match AW in src/project.v (2**AW)
+IMEM_WORDS = 128  # words per core bank: must match AW in src/project.v (2**AW)
 
 OP = dict(jmp=0, wait=1, in_=2, out=3, pp=4, mov=5, flag=6, set=7, add=8, nop=15)
 
@@ -93,7 +93,7 @@ class Program:
         out = []
         for w in self.words:
             if (w >> 20) & 0xF == 0:
-                w = (w & ~0x3F) | ((w + origin) & 0x3F)
+                w = (w & ~0x7F) | ((w + origin) & 0x7F)
             out.append(w)
         return out
 
@@ -268,7 +268,7 @@ def _instr(line, labels, defines):
             raise AsmError("jmp [cond] target")
         if cond not in JMP_COND:
             raise AsmError(f"bad jmp condition '{cond}'")
-        return E(OP["jmp"], JMP_COND[cond] << 7 | (target(tgt) & 0x3F))
+        return E(OP["jmp"], JMP_COND[cond] << 7 | (target(tgt) & 0x7F))
     if mn == "wait":
         toks = " ".join(args).split()
         pol = _num(toks[0], defines) & 1
@@ -346,7 +346,7 @@ def disassemble(w):
     nb = (a & 15) or 16
     inv = lambda d: {v: k for k, v in d.items() if k not in ("always",)}  # noqa: E731
     if op == 0:
-        s = f"jmp {inv(JMP_COND).get((a >> 7) & 15, '?')} {a & 63}".replace("jmp  ", "jmp ")
+        s = f"jmp {inv(JMP_COND).get((a >> 7) & 15, '?')} {a & 127}".replace("jmp  ", "jmp ")
     elif op == 1:
         s = f"wait {a >> 10 & 1} {inv(WAIT_SRC)[(a >> 8) & 3]} {a & 31}"
     elif op == 2:

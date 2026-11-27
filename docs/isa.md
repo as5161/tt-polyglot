@@ -71,7 +71,7 @@ instruction with no loss of delay bits). `side` = values for up to 3 side pins.
 
 | op | mnemonic | operands `[10:0]` |
 |---|---|---|
-| 0 | `JMP cond, addr` | `[10:7]` cond, `[5:0]` address (`[4:0]` used with the 32-word IMEM) |
+| 0 | `JMP cond, addr` | `[10:7]` cond, `[6:0]` address in the core's own 128-word bank |
 | 1 | `WAIT pol src idx` | `[10]` polarity, `[9:8]` source, `[4:0]` index |
 | 2 | `IN src, n` | `[10:8]` source, `[3:0]` bit count (0 = 16) |
 | 3 | `OUT dst, n` | `[10:8]` destination, `[3:0]` bit count |

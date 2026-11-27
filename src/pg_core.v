@@ -11,7 +11,11 @@
 `default_nettype none
 
 module pg_core #(
-    parameter AW = 6
+    parameter AW = 6,
+    // EXT_IR = 0: the core registers imem_next into its own fetch register.
+    // EXT_IR = 1: imem_next already IS that register (a synchronous-read
+    // memory addressed with pc_next), so it is used directly.
+    parameter EXT_IR = 0
 ) (
     input  wire        clk,
     input  wire        rst_n,
@@ -21,7 +25,7 @@ module pg_core #(
     input  wire        exec_valid,    // host-injected instruction pending
     input  wire [23:0] exec_instr,
     output wire        exec_done,
-    input  wire [23:0] imem_next,     // imem[pc_next] (with host-write bypass)
+    input  wire [23:0] imem_next,     // EXT_IR=0: imem[pc_next]; EXT_IR=1: imem[pc] (registered)
     output wire [AW-1:0] pc_o,
     output reg  [AW-1:0] pc_next,
 
@@ -142,7 +146,8 @@ module pg_core #(
   endfunction
 
   // ---------------------------------------------------------------- decode
-  wire [23:0] ir      = exec_valid ? exec_instr : ir_q;
+  wire [23:0] ir_f    = EXT_IR ? imem_next : ir_q;
+  wire [23:0] ir      = exec_valid ? exec_instr : ir_f;
   wire [3:0]  op      = ir[23:20];
   wire        side_en = ir[19];
   wire [2:0]  side_v  = ir[18:16];

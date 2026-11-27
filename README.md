@@ -71,7 +71,9 @@ written *inside the test* concurrently.
 
 ## Physical (pre-layout, Yosys + IHP CMOS5L)
 
-About 287,000 um^2 of cells and 2,162 flops in Yosys. The real LibreLane flow is about 1.65x larger. Full-flow runs showed the binding limit is horizontal routing on Metal3 (the only horizontal signal layer below Metal5): 4 cores with 64 words placed at 72% and could not route; 4 cores with 32 words placed at 45% but Metal3 demand was 104%; the shipped design (3 cores, 32 words) cuts another 19%. See [docs/verification.md](docs/verification.md#first-runs-through-the-real-tiny-tapeout-flow).
+**v2 (branch v2-sram):** 4 cores, each with its own IHP 256x32 SRAM bank (128 words used today), 251,000 um^2 of logic in Yosys plus four 49,500 um^2 macros. Removing the 768-flop shared IMEM and its read muxes made 4 cores smaller than 3 were.
+
+v1: about 287,000 um^2 of cells and 2,162 flops in Yosys. The real LibreLane flow is about 1.65x larger. Full-flow runs showed the binding limit is horizontal routing on Metal3 (the only horizontal signal layer below Metal5): 4 cores with 64 words placed at 72% and could not route; 4 cores with 32 words placed at 45% but Metal3 demand was 104%; the shipped design (3 cores, 32 words) cuts another 19%. See [docs/verification.md](docs/verification.md#first-runs-through-the-real-tiny-tapeout-flow).
 Critical-path estimate (NLDM, x1 cells, before OpenROAD upsizing): 12.8 ns
 typical / 20 ns slow corner. The flow targets 50 MHz, and 60 MHz is expected
 at typical silicon.
@@ -93,7 +95,8 @@ On the demo board: `firmware/polyglot_mp.py` (MicroPython, RP2350).
 
 | path | contents |
 |---|---|
-| `src/` | RTL: `pg_core.v` (core), `pg_cluster.v` (IMEM, FIFOs, pins, registers), `pg_host_spi.v`, `pg_fifo.v`, `project.v` (top) |
+| `src/` | RTL: `pg_core.v` (core), `pg_cluster.v` (banks, FIFOs, pins, registers), `pg_bank.v` (SRAM bank), `pg_host_spi.v`, `pg_fifo.v`, `project.v` (top) |
+| `librelane_plugin_polyglot.py`, `flow/`, `src/pdn_cfg.tcl` | SRAM power-stripe and pin-diode flow steps, adapted (Apache-2.0) from kdp1965/ihp-um-janestreet-prism via josusanmartin/wirelingo |
 | `tools/polyglot/` | assembler (`asm.py`), cycle-accurate golden model (`sim.py`), simulator CLI (`run.py`), host driver (`host.py`) |
 | `programs/` | example programs |
 | `test/` | cocotb protocol tests, `cosim/` co-simulation and mutation testing |

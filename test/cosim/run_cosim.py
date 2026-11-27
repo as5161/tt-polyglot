@@ -21,12 +21,13 @@ sys.path.insert(0, os.path.join(ROOT, "tools"))
 from polyglot.sim import Cluster  # noqa: E402
 from polyglot.asm import disassemble  # noqa: E402
 
-DEPTH = 32  # IMEM words (AW=5)
-NC = 3      # cores (project.v)
-SRC = ["pg_cluster.v", "pg_core.v", "pg_fifo.v"]
+DEPTH = 128  # words per core bank (AW=7)
+NC = 4       # cores (project.v)
+BANK = 0x400  # IMEM of core c: BANK + 0x100 * c + word
+SRC = ["pg_cluster.v", "pg_core.v", "pg_fifo.v", "pg_bank.v"]
 FIELDS = ["hrdata", "pout", "poe", "flags", "en"] + [
     f"c{i}.{n}" for i in range(NC) for n in
-    ("pc", "x", "y", "isr", "osr", "crc", "isr_cnt", "osr_cnt", "dly", "tx_cnt", "rx_cnt", "exec_pend", "rx_head")]
+    ("pc", "x", "y", "isr", "osr", "crc", "isr_cnt", "osr_cnt", "dly", "tx_cnt", "rx_cnt", "exec_pend", "rx_head", "ir")]
 
 
 WEIGHTS = [14, 6, 12, 12, 8, 12, 5, 12, 8, 2]
@@ -43,10 +44,13 @@ def rand_instr(r, mode, weights=None):
     dly = r.choice([0, 0, 0, 0, 1, 2, 3, r.randrange(32)]) if mode != "fast" else r.choice([0, 0, 1])
     a = r.getrandbits(11)
     if op == 0:
-        a = (r.choices(range(16), weights=[3] + [4] * 10 + [1] * 5)[0] << 7) | r.randrange(64)  # 6-bit field; upper bit ignored by AW=5 hardware
+        # jump target in [6:0]; mostly inside the loaded region so programs loop
+        a = (r.choices(range(16), weights=[3] + [4] * 10 + [1] * 5)[0] << 7) | r.choice([r.randrange(24), r.randrange(128)])
     elif op == 1:
         src = r.choice([0, 1, 2, 3])
         a = (r.getrandbits(1) << 10) | (src << 8) | (r.randrange(24) if src != 2 else r.randrange(8))
+    elif op in (2, 3) and r.random() < 0.25:
+        a = (a & ~0xF) | 1                             # 1-bit shifts feed the CRC
     w = (op << 20) | (side << 19) | (r.getrandbits(3) << 16) | (dly << 11) | a
     return w
 
@@ -55,19 +59,23 @@ def gen(seed, cycles):
     r = random.Random(seed)
     stim = []
 
-    def op(hw=0, hr=0, addr=0, data=0):
-        stim.append([hw, hr, addr, data])
+    def op(hw=0, hr=0, addr=0, data=0, pk=0):
+        stim.append([hw, hr, addr, data, pk])
 
     mode = r.choice(["fast", "normal", "normal", "side"])
     # per-seed opcode mix: half the seeds focus on a random subset of opcodes
     wts = WEIGHTS if r.random() < 0.5 else [w * r.choice([0, 1, 4, 8]) + (8 if i == 0 else 0)
                                              for i, w in enumerate(WEIGHTS)]
-    for i in range(DEPTH):
-        op(1, 0, i, rand_instr(r, mode, wts))
+    # each core gets its own random image; a short program region keeps most
+    # control flow inside it
+    plen = r.choice([24, 48, DEPTH])
+    for c in range(4):
+        for i in range(plen):
+            op(1, 0, BANK + 0x100 * c + i, rand_instr(r, mode, wts))
     for c in range(4):
         b = 0x80 + 8 * c
         op(1, 0, b + 0, r.choice([0, 0, 1, 2, 3, r.randrange(8)]))
-        wb, wt = sorted([r.randrange(DEPTH), r.randrange(DEPTH)])
+        wb, wt = sorted([r.randrange(plen), r.randrange(plen)])
         op(1, 0, b + 1, wb | wt << 7 | r.randrange(32) << 14 | r.getrandbits(2) << 19)
         op(1, 0, b + 2, r.getrandbits(17))
         pb = lambda: r.choice([r.randrange(32), r.randrange(4), r.randrange(8, 12)])  # noqa: E731
@@ -76,7 +84,7 @@ def gen(seed, cycles):
             ob = sb = r.randrange(8)       # force side-set / main-op pin overlap
         op(1, 0, b + 3, ob | r.randrange(1, 17) << 5 | sb << 10 | r.randrange(1, 9) << 15)
         op(1, 0, b + 4, pb() | sb << 5 | r.randrange(1, 4) << 10)
-        op(1, 0, b + 6, r.randrange(DEPTH))
+        op(1, 0, b + 6, r.randrange(plen))
         op(1, 0, 0xA8 + c, r.getrandbits(16))
     op(1, 0, 0xA0, r.randrange(1, 16) | 0xFF0)
     rate = r.choice([0.02, 0.05, 0.2])
@@ -89,12 +97,18 @@ def gen(seed, cycles):
                 op(1, 0, b + 5, r.getrandbits(24))            # push TX
             elif k < 0.6:
                 op(0, 1, b + 5)                               # pop RX
-            elif k < 0.7:
+            elif k < 0.64:
                 op(0, 1, r.randrange(256))                    # random read (side effects!)
+            elif k < 0.7:
+                # IMEM read peek, sometimes followed by the "data" cycle
+                a = BANK + 0x100 * c + r.randrange(DEPTH + 8)
+                op(0, 0, a, 0, 1)
+                if r.random() < 0.7:
+                    op(0, r.random() < 0.2, a)
             elif k < 0.76:
                 op(1, 0, b + 7, rand_instr(r, mode, wts))          # exec
             elif k < 0.8:
-                op(1, 0, b + 6, r.randrange(64))              # pc
+                op(1, 0, b + 6, r.randrange(128))             # pc
             elif k < 0.85:
                 op(1, 0, 0xA0, r.getrandbits(16))             # ctrl
             elif k < 0.89:
@@ -104,9 +118,13 @@ def gen(seed, cycles):
             elif k < 0.97:
                 op(1, 0, b + r.randrange(5), r.getrandbits(24))  # reconfigure
             else:
-                op(1, 0, r.randrange(64), rand_instr(r, mode, wts))   # self-modify imem (incl. unmapped 32-63)
+                # bank write: running core => ignored; also out-of-range words
+                # and other pages
+                a = r.choice([BANK + 0x100 * c + r.randrange(DEPTH + 8), r.getrandbits(15)])
+                op(1, 0, a, rand_instr(r, mode, wts))
         else:
-            op(0, 0, r.randrange(256), r.getrandbits(24))
+            op(0, 0, r.choice([r.randrange(256), r.getrandbits(15)]), r.getrandbits(24),
+               int(r.random() < 0.02))
     # pin activity: random walk with per-seed toggle rate
     pins = r.getrandbits(32)
     tog = r.choice([0.01, 0.05, 0.3])
@@ -124,25 +142,23 @@ COV = {}
 def run(seed, cycles, workdir, verbose=False):
     stim = gen(seed, cycles)
     with open(os.path.join(workdir, "stim.hex"), "w") as f:
-        for hw, hr, addr, data, pins in stim:
-            v = (hw << 65) | (hr << 64) | (addr << 56) | (data << 32) | pins
-            f.write(f"{v:018x}\n")
+        for hw, hr, addr, data, pk, pins in stim:
+            v = (pk << 73) | (hw << 72) | (hr << 71) | (addr << 56) | (data << 32) | pins
+            f.write(f"{v:019x}\n")
     subprocess.run(["vvp", "-n", os.path.join(workdir, "sim.vvp"), f"+N={cycles}"],
                    cwd=workdir, check=True, stdout=subprocess.DEVNULL)
     with open(os.path.join(workdir, "rtl_trace.txt")) as f:
         txt = f.read()
-    if "IRFAIL" in txt:
-        print(f"seed {seed}: fetch register out of sync with IMEM")
-        return False
     if True:
         rtl = [[int(t, 16) if not set(t) & set("xXzZ") else t for t in ln.split()] for ln in txt.splitlines()]
 
     m = Cluster()
     for c in m.cores:
         c.cov = COV
-    for cyc, (hw, hr, addr, data, pins) in enumerate(stim):
+    for cyc, (hw, hr, addr, data, pk, pins) in enumerate(stim):
         pcs = [c.pc for c in m.cores]
-        rd = m.cycle(hw, hr, addr, data, pins)
+        irs = list(m.dout)
+        rd = m.cycle(hw, hr, addr, data, pins, pk)
         exp = [rd] + m.snapshot()
         got = rtl[cyc]
         for i, (e, g) in enumerate(zip(exp, got)):
@@ -155,11 +171,10 @@ def run(seed, cycles, workdir, verbose=False):
                     g = (g >> 23) if isinstance(g, int) else (int(g[0], 16) >> 3 if g[0] in "0123456789abcdef" else g)
             if e != g:
                 print(f"seed {seed}: MISMATCH cycle {cyc} field {FIELDS[i]}: iss={e} rtl={g}")
-                print(f"  stim hw={hw} hr={hr} addr={addr:02x} data={data:06x} pins={pins:08x}")
+                print(f"  stim hw={hw} hr={hr} peek={pk} addr={addr:04x} data={data:06x} pins={pins:08x}")
                 for ci, pc in enumerate(pcs):
-                    w = m.imem[pc]
-                    print(f"  core{ci} pc={pc:2d} {w if w is None else hex(w)} "
-                          f"{'' if w is None else disassemble(w)}")
+                    w = irs[ci]
+                    print(f"  core{ci} pc={pc:3d} ir={w:06x} {disassemble(w)}")
                 return False
     if verbose:
         print(f"seed {seed}: ok ({cycles} cycles)")
@@ -174,8 +189,9 @@ def main():
     ap.add_argument("-v", action="store_true")
     ap.add_argument("--cov", action="store_true")
     ap.add_argument("--src", default=os.path.join(ROOT, "src"))
+    ap.add_argument("--work", default=os.path.join(HERE, "work"), help="scratch directory (one per concurrent run)")
     ns = ap.parse_args()
-    work = os.path.join(HERE, "work")
+    work = ns.work
     os.makedirs(work, exist_ok=True)
     subprocess.run(["iverilog", "-g2005", "-o", os.path.join(work, "sim.vvp"),
                     os.path.join(HERE, "tb_cosim.v")] +

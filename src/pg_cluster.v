@@ -1,10 +1,13 @@
 /*
- * Polyglot - cluster: shared instruction memory, 4 cores, FIFOs, flags,
- * pin arbitration and the host register file.
+ * Polyglot - cluster: 4 cores, each with its own 256-word instruction bank,
+ * FIFOs, flags, pin arbitration and the host register file.
  * SPDX-License-Identifier: Apache-2.0
  *
- * Host register map (24-bit words, 8-bit address) - see docs/registers.md
- *   0x00-0x1F  IMEM[addr] (2^AW words, AW=5 in project.v)    (W, R)
+ * Host register map (24-bit words, 15-bit address) - see docs/registers.md
+ *   0x0400 + 0x100*c + w   IMEM bank of core c, word w (2^AW words, AW=7 in
+ *                          project.v).  Accessible only while core c is
+ *                          stopped (EN[c] = 0): writes are ignored and reads
+ *                          return 0 while it runs.
  *   0x80+8c+n  per-core registers, c = 0..3:
  *        n=0 CLKDIV    [15:0]
  *        n=1 EXECCTRL  WRAP_BOT[6:0] WRAP_TOP[13:7] JMP_PIN[18:14] SIDE_PINDIR[19] OD[20]
@@ -16,20 +19,21 @@
  *        n=6 PC        W: jump           R: current PC
  *        n=7 EXEC      W: execute word immediately   R: core status
  *   0xA0 CTRL      W: EN[3:0] RESTART[7:4] DIVSYNC[11:8] FIFOCLR[15:12]   R: EN
- *   (NC = number of cores, 3 in project.v; bits/registers of missing cores are ignored / read 0)
+ *   (NC = number of cores, 4 in project.v; bits/registers of missing cores are ignored / read 0)
  *   0xA1 STEP      W: single-step mask[3:0]
  *   0xA2 FLAGS     R/W [7:0]
  *   0xA3 FIFOSTAT  R: TXFULL[3:0] TXEMPTY[7:4] RXFULL[11:8] RXEMPTY[15:12]
  *   0xA4 PINS      R: pin space [23:0]
- *   0xA5 ID        R: 0x504701 ("PG", v1)
+ *   0xA5 ID        R: 0x504702 ("PG", v2)
  *   0xA6 TIME      R: free-running cycle counter
  *   0xA8+c POLY    R/W CRC polynomial of core c
  *   0xAC+c X  0xB0+c Y  0xB4+c CRC   (R: debug)
+ *   (all of 0x00-0xFF lives in page 0: address bits [14:8] = 0)
  */
 `default_nettype none
 
 module pg_cluster #(
-    parameter AW = 6,
+    parameter AW = 7,           // core PC width: 2^AW words per bank (<= 8)
     parameter NC = 4
 ) (
     input  wire        clk,
@@ -38,7 +42,8 @@ module pg_cluster #(
     // host bus
     input  wire        hw_en,
     input  wire        hr_en,
-    input  wire [7:0]  haddr,
+    input  wire        hr_peek,
+    input  wire [14:0] haddr,
     input  wire [23:0] hwdata,
     output reg  [23:0] hrdata,
 
@@ -50,23 +55,23 @@ module pg_cluster #(
   localparam DEPTH = (1 << AW);
 
   // ------------------------------------------------------------ global state
-  reg [23:0] imem [0:DEPTH-1];
   reg [NC-1:0] en;
   reg [7:0]  flags;
   reg [15:0] timer;
 
-  wire host_core = (haddr[7:5] == 3'b100);
-  wire [1:0] hc  = haddr[4:3];
-  wire [2:0] hn  = haddr[2:0];
+  wire       page0     = (haddr[14:8] == 7'd0);
+  wire [7:0] ra        = haddr[7:0];
+  wire       host_core = page0 && (ra[7:5] == 3'b100);
+  wire [1:0] hc  = ra[4:3];
+  wire [2:0] hn  = ra[2:0];
 
-  wire w_ctrl  = hw_en && haddr == 8'hA0;
-  wire w_step  = hw_en && haddr == 8'hA1;
-  wire w_flags = hw_en && haddr == 8'hA2;
+  // IMEM banks: 0x0400 + 0x100*bank + word
+  wire       imem_hit  = (haddr[14:10] == 5'b00001) && (ra < DEPTH);
+  wire [1:0] imem_bank = haddr[9:8];
 
-  always @(posedge clk) begin
-    if (hw_en && haddr[7] == 1'b0 && haddr[6:0] < DEPTH)
-      imem[haddr[AW-1:0]] <= hwdata;
-  end
+  wire w_ctrl  = hw_en && page0 && ra == 8'hA0;
+  wire w_step  = hw_en && page0 && ra == 8'hA1;
+  wire w_flags = hw_en && page0 && ra == 8'hA2;
 
   // ------------------------------------------------------------ per-core
   // The register map always has 4 core slots (NC may be 1..4).  Slots
@@ -78,6 +83,7 @@ module pg_cluster #(
   wire [7:0]  c_fset [0:NC-1];
   wire [7:0]  c_fclr [0:NC-1];
   wire [23:0] c_rd   [0:3];        // per-core host read data (n = 0..7)
+  wire [23:0] c_imem [0:3];        // bank read port output (0 while the core runs)
   wire [15:0] c_x [0:3];
   wire [15:0] c_y [0:3];
   wire [15:0] c_crc [0:3];
@@ -106,7 +112,7 @@ module pg_cluster #(
       reg        exec_pend;
       reg [23:0] exec_ir;
 
-      wire w_poly = hw_en && haddr == (8'hA8 + c);
+      wire w_poly = hw_en && page0 && ra == (8'hA8 + c);
 
       always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
@@ -189,10 +195,23 @@ module pg_cluster #(
       end
 
       wire [AW-1:0] pc, pc_next;
-      // fetch with bypass: a host write to imem[pc_next] this cycle is seen now
-      wire imem_wr_hit = hw_en && haddr[7] == 1'b0 && haddr[6:0] == {{(7-AW){1'b0}}, pc_next};
-      wire [23:0] imem_next = imem_wr_hit ? hwdata : imem[pc_next];
-      pg_core #(.AW(AW)) u_core (
+      // Instruction bank.  Every cycle it reads imem[pc_next], so its output
+      // register is the core's fetch register (EXT_IR): it always holds
+      // imem[pc].  The host may use the port only while this core is
+      // stopped: a write, or the read of a word it is about to shift out.
+      // The cycle after, the bank fetches imem[pc] again.
+      wire bank_host = imem_hit && imem_bank == c && !en[c];
+      wire bank_we   = hw_en && bank_host;
+      wire bank_hrd  = hr_peek && bank_host;
+      wire [31:0] bank_q;
+      wire [7:0]  bank_a = (bank_we | bank_hrd) ? ra : {{(8-AW){1'b0}}, pc_next};
+      pg_bank u_bank (
+          .clk(clk), .we(bank_we), .addr(bank_a),
+          .wdata({8'h0, hwdata}), .rdata(bank_q));
+      wire [23:0] imem_next = bank_q[23:0];
+      assign c_imem[c] = en[c] ? 24'h0 : bank_q[23:0];
+      wire _unused_bank = &{1'b0, bank_q[31:24]};
+      pg_core #(.AW(AW), .EXT_IR(1)) u_core (
           .clk(clk), .rst_n(rst_n),
           .tick(tick), .exec_valid(exec_pend), .exec_instr(exec_ir), .exec_done(exec_done),
           .imem_next(imem_next), .pc_o(pc), .pc_next(pc_next),
@@ -234,6 +253,7 @@ module pg_cluster #(
   generate
     for (u = NC; u < 4; u = u + 1) begin : g_absent
       assign c_rd[u]   = 24'h0;
+      assign c_imem[u] = 24'h0;
       assign c_x[u]    = 16'h0;
       assign c_y[u]    = 16'h0;
       assign c_crc[u]  = 16'h0;
@@ -282,22 +302,24 @@ module pg_cluster #(
   // ------------------------------------------------------------ host read mux
   always @* begin
     hrdata = 24'h0;
-    if (haddr[7] == 1'b0) begin
-      if (haddr[6:0] < DEPTH) hrdata = imem[haddr[AW-1:0]];
+    if (imem_hit) begin
+      hrdata = c_imem[imem_bank];       // registered: the word read at hr_peek
+    end else if (!page0) begin
+      hrdata = 24'h0;
     end else if (host_core) begin
       hrdata = c_rd[hc];
     end else begin
-      case (haddr)
+      case (ra)
         8'hA0: hrdata = {{(24-NC){1'b0}}, en};
         8'hA2: hrdata = {16'h0, flags};
         8'hA3: hrdata = {8'h0, rx_empty_v, rx_full_v, tx_empty_v, tx_full_v};
         8'hA4: hrdata = pins_in[23:0];
-        8'hA5: hrdata = 24'h504701;
+        8'hA5: hrdata = 24'h504702;
         8'hA6: hrdata = {8'h0, timer};
-        8'hA8, 8'hA9, 8'hAA, 8'hAB: hrdata = {8'h0, c_poly[haddr[1:0]]};
-        8'hAC, 8'hAD, 8'hAE, 8'hAF: hrdata = {8'h0, c_x[haddr[1:0]]};
-        8'hB0, 8'hB1, 8'hB2, 8'hB3: hrdata = {8'h0, c_y[haddr[1:0]]};
-        8'hB4, 8'hB5, 8'hB6, 8'hB7: hrdata = {8'h0, c_crc[haddr[1:0]]};
+        8'hA8, 8'hA9, 8'hAA, 8'hAB: hrdata = {8'h0, c_poly[ra[1:0]]};
+        8'hAC, 8'hAD, 8'hAE, 8'hAF: hrdata = {8'h0, c_x[ra[1:0]]};
+        8'hB0, 8'hB1, 8'hB2, 8'hB3: hrdata = {8'h0, c_y[ra[1:0]]};
+        8'hB4, 8'hB5, 8'hB6, 8'hB7: hrdata = {8'h0, c_crc[ra[1:0]]};
         default: hrdata = 24'h0;
       endcase
     end

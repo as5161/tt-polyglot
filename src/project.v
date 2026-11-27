@@ -37,21 +37,23 @@ module tt_um_polyglot (
     end
   end
 
-  wire        hw_en, hr_en, miso;
-  wire [7:0]  haddr;
+  wire        hw_en, hr_en, hr_peek, miso;
+  wire [14:0] haddr;
   wire [23:0] hwdata, hrdata;
   wire [15:0] pout, poe;
 
   pg_host_spi u_host (
       .clk(clk), .rst_n(rst_n),
       .cs_n(ui_s1[7]), .sck(ui_s1[6]), .mosi(ui_s1[5]), .miso(miso),
-      .hw_en(hw_en), .hr_en(hr_en), .haddr(haddr), .hwdata(hwdata), .hrdata(hrdata));
+      .hw_en(hw_en), .hr_en(hr_en), .hr_peek(hr_peek), .haddr(haddr),
+      .hwdata(hwdata), .hrdata(hrdata));
 
   wire [31:0] pins = {8'h00, ui_s1, miso, pout[14:8], uio_s1};
 
-  pg_cluster #(.AW(5), .NC(3)) u_cluster (   // 32-word IMEM, 3 cores
+  pg_cluster #(.AW(7), .NC(4)) u_cluster (   // 4 cores, 128 words each (SRAM banks)
       .clk(clk), .rst_n(rst_n),
-      .hw_en(hw_en), .hr_en(hr_en), .haddr(haddr), .hwdata(hwdata), .hrdata(hrdata),
+      .hw_en(hw_en), .hr_en(hr_en), .hr_peek(hr_peek), .haddr(haddr),
+      .hwdata(hwdata), .hrdata(hrdata),
       .pins_in(pins), .pout(pout), .poe(poe));
 
   assign uo_out  = {miso, pout[14:8]};

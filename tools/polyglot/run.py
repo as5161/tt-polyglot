@@ -3,7 +3,7 @@
     python -m polyglot.run programs/uart_tx.pga --push 0x48,0x69 --cycles 3000 --vcd uart.vcd
     python -m polyglot.run a.pga b.pga --push 1:0x9f   # several programs, one per core
 
-Loads each program on its own core (packing them into IMEM), pushes the given
+Loads each program into its own core's bank, pushes the given
 words into the TX FIFOs, runs, then prints RX FIFO contents and writes a VCD
 of all pins (open it in GTKWave or Surfer).
 
@@ -31,11 +31,11 @@ class Bus:
 
     def write(self, addr, *words):
         for i, w in enumerate(words):
-            self.cyc(1, 0, addr + i if addr < 0x80 else addr, w)
+            self.cyc(1, 0, addr + i if addr >= 0x400 else addr, w)
 
 
 def load(bus, prog, core, origin):
-    bus.write(origin, *prog.relocated(origin))
+    bus.write(Cluster.BANK_BASE + 0x100 * core + origin, *prog.relocated(origin))
     r = prog.regs(origin)
     for n in range(5):
         bus.cyc(1, 0, 0x80 + 8 * core + n, r[n])
@@ -76,7 +76,6 @@ def main(argv=None):
     ns = ap.parse_args(argv)
     m = Cluster()
     bus = Bus(m)
-    origin = 0
     try:
         progs = [load_file(p) for p in ns.programs]
     except AsmError as e:
@@ -85,12 +84,11 @@ def main(argv=None):
     for c, p in enumerate(progs):
         if ns.clkdiv is not None:
             p.cfg["clkdiv"] = ns.clkdiv
-        if origin + len(p.words) > IMEM_WORDS:
-            print(f"error: programs do not fit in {IMEM_WORDS} words of IMEM", file=sys.stderr)
+        if len(p.words) > IMEM_WORDS:
+            print(f"error: {p.name} does not fit in a {IMEM_WORDS}-word bank", file=sys.stderr)
             return 1
-        load(bus, p, c, origin)
-        print(f"core {c}: {p.name} at {origin}..{origin + len(p.words) - 1}")
-        origin += len(p.words)
+        load(bus, p, c, 0)
+        print(f"core {c}: {p.name} in bank {c}, words 0..{len(p.words) - 1}")
     pushes = {}
     if ns.push:
         for grp in ns.push.split(";"):
