@@ -36,6 +36,7 @@ def main():
     cfg = json.load(open(os.path.join(ROOT, "src", "config.json")))
     hx = float(cfg.get("FP_MACRO_HORIZONTAL_HALO", 0))
     hy = float(cfg.get("FP_MACRO_VERTICAL_HALO", 0))
+    dy_max = float(cfg.get("PL_MAX_DISPLACEMENT_Y", 100))
     errs = []
     boxes = []
     for master, m in cfg.get("MACROS", {}).items():
@@ -58,6 +59,16 @@ def main():
                 errs.append(f"{n1} and {n2} overlap by {-gap:.2f} um")
             elif gap < 2 * hx - EPS:
                 errs.append(f"{n1}/{n2}: gap {gap:.2f} um < two halos {2 * hx:.2f} um")
+            elif gap < 100 and dy_max < b1[3] - b1[1] + hy:
+                # a narrow pocket beside a macro: a cell placed at its bottom must be able to
+                # climb out of it (gds #12: DPL-0036 with the default 100 um)
+                errs.append(f"{n1}/{n2}: {gap:.2f} um pocket is {b1[3] - b1[1]:.1f} um tall but "
+                            f"PL_MAX_DISPLACEMENT_Y is {dy_max} um")
+    # rows must survive somewhere below the macros' top: blocking every row
+    # there (gds #13/#14) made OpenROAD's padding check fail on all macros
+    low = [b for _, b in boxes if b[1] < CORE_Y0 + ROW_H]
+    if low and cfg.get("FP_OBSTRUCTIONS"):
+        errs.append("FP_OBSTRUCTIONS beside bottom-row macros: gds #14 failed DPL-0011 this way")
     for ob in cfg.get("FP_OBSTRUCTIONS", []) or []:
         for name, b in boxes:
             if ob[0] < b[2] - EPS and b[0] < ob[2] - EPS and ob[1] < b[3] - EPS and b[1] < ob[3] - EPS:
