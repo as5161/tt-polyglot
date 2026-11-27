@@ -125,6 +125,7 @@ def gen(seed, cycles):
         else:
             op(0, 0, r.choice([r.randrange(256), r.getrandbits(15)]), r.getrandbits(24),
                int(r.random() < 0.02))
+    del stim[cycles:]      # a two-cycle operation can overshoot by one
     # pin activity: random walk with per-seed toggle rate
     pins = r.getrandbits(32)
     tog = r.choice([0.01, 0.05, 0.3])
