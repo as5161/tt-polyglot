@@ -12,7 +12,7 @@ Every protocol is a program, so the chip can be taught protocols nobody
 planned for.
 
 ```
-              ┌─────────────────── 64 x 24-bit shared IMEM ──────────────────┐
+              ┌─────────────────── 32 x 24-bit shared IMEM ──────────────────┐
  RP2350 ─SPI─►│ host port: load / start / single-step / inject / FIFOs / debug│
               └──┬──────────────┬──────────────┬──────────────┬──────────────┘
            ┌─────▼────┐   ┌─────▼────┐   ┌─────▼────┐   ┌─────▼────┐
@@ -71,7 +71,7 @@ written *inside the test* concurrently.
 
 ## Physical (pre-layout, Yosys + IHP CMOS5L)
 
-~30k cells, 3,347 flops, **462,000 um^2 = 46%** of the 8x4 tiles.
+About 354,000 um^2 of cells and 2,567 flops in Yosys (36% of the 8x4 tiles). The real LibreLane flow adds buffering: the first full-flow run of the original 64-word version measured 67% placement utilization, which is why the instruction memory was halved to 32 words (expected about 50%).
 Critical-path estimate (NLDM, x1 cells, before OpenROAD upsizing): 12.8 ns
 typical / 20 ns slow corner. The flow targets 50 MHz, and 60 MHz is expected
 at typical silicon.

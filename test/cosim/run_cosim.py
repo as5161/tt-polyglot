@@ -21,6 +21,7 @@ sys.path.insert(0, os.path.join(ROOT, "tools"))
 from polyglot.sim import Cluster  # noqa: E402
 from polyglot.asm import disassemble  # noqa: E402
 
+DEPTH = 32  # IMEM words (AW=5)
 SRC = ["pg_cluster.v", "pg_core.v", "pg_fifo.v"]
 FIELDS = ["hrdata", "pout", "poe", "flags", "en"] + [
     f"c{i}.{n}" for i in range(4) for n in
@@ -41,7 +42,7 @@ def rand_instr(r, mode, weights=None):
     dly = r.choice([0, 0, 0, 0, 1, 2, 3, r.randrange(32)]) if mode != "fast" else r.choice([0, 0, 1])
     a = r.getrandbits(11)
     if op == 0:
-        a = (r.choices(range(16), weights=[3] + [4] * 10 + [1] * 5)[0] << 7) | r.randrange(64)
+        a = (r.choices(range(16), weights=[3] + [4] * 10 + [1] * 5)[0] << 7) | r.randrange(64)  # 6-bit field; upper bit ignored by AW=5 hardware
     elif op == 1:
         src = r.choice([0, 1, 2, 3])
         a = (r.getrandbits(1) << 10) | (src << 8) | (r.randrange(24) if src != 2 else r.randrange(8))
@@ -60,12 +61,12 @@ def gen(seed, cycles):
     # per-seed opcode mix: half the seeds focus on a random subset of opcodes
     wts = WEIGHTS if r.random() < 0.5 else [w * r.choice([0, 1, 4, 8]) + (8 if i == 0 else 0)
                                              for i, w in enumerate(WEIGHTS)]
-    for i in range(64):
+    for i in range(DEPTH):
         op(1, 0, i, rand_instr(r, mode, wts))
     for c in range(4):
         b = 0x80 + 8 * c
         op(1, 0, b + 0, r.choice([0, 0, 1, 2, 3, r.randrange(8)]))
-        wb, wt = sorted([r.randrange(64), r.randrange(64)])
+        wb, wt = sorted([r.randrange(DEPTH), r.randrange(DEPTH)])
         op(1, 0, b + 1, wb | wt << 7 | r.randrange(32) << 14 | r.getrandbits(2) << 19)
         op(1, 0, b + 2, r.getrandbits(17))
         pb = lambda: r.choice([r.randrange(32), r.randrange(4), r.randrange(8, 12)])  # noqa: E731
@@ -74,7 +75,7 @@ def gen(seed, cycles):
             ob = sb = r.randrange(8)       # force side-set / main-op pin overlap
         op(1, 0, b + 3, ob | r.randrange(1, 17) << 5 | sb << 10 | r.randrange(1, 9) << 15)
         op(1, 0, b + 4, pb() | sb << 5 | r.randrange(1, 4) << 10)
-        op(1, 0, b + 6, r.randrange(64))
+        op(1, 0, b + 6, r.randrange(DEPTH))
         op(1, 0, 0xA8 + c, r.getrandbits(16))
     op(1, 0, 0xA0, r.randrange(1, 16) | 0xFF0)
     rate = r.choice([0.02, 0.05, 0.2])
@@ -102,7 +103,7 @@ def gen(seed, cycles):
             elif k < 0.97:
                 op(1, 0, b + r.randrange(5), r.getrandbits(24))  # reconfigure
             else:
-                op(1, 0, r.randrange(64), rand_instr(r, mode, wts))   # self-modify imem
+                op(1, 0, r.randrange(64), rand_instr(r, mode, wts))   # self-modify imem (incl. unmapped 32-63)
         else:
             op(0, 0, r.randrange(256), r.getrandbits(24))
     # pin activity: random walk with per-seed toggle rate

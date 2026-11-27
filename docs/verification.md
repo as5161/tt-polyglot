@@ -33,7 +33,7 @@ Six layers, each catching a different class of bug:
 
 `run_cosim.py` generates, for each seed:
 
-* a random 64-word program, biased towards valid encodings, with 3% fully
+* a random 32-word program (plus writes to the unmapped addresses 32-63), biased towards valid encodings, with 3% fully
   random words so reserved opcodes and odd field values are covered;
 * random configuration of all four cores (dividers, wraps, shift directions,
   thresholds, CRC, open-drain, pin bases);
@@ -162,9 +162,9 @@ netlist.
 
 | metric | value |
 |---|---|
-| cells (IHP CMOS5L, typ) | ~30,200 |
-| flip-flops | 3,347 |
-| cell area | 462,000 um^2 = **46%** of the 8x4 tiles (1.00 mm^2) |
+| cells (IHP CMOS5L, typ, Yosys) | ~25,400 |
+| flip-flops | 2,567 |
+| cell area | 354,000 um^2 in Yosys (the real flow is larger, see below) |
 | timing estimate (`tools/gl/mini_sta.py`, NLDM, x1 cells, buffer-tree model) | 12.8 ns typical (~78 MHz), 20.1 ns slow corner (~50 MHz) |
 | flow target | `CLOCK_PERIOD` 20 ns (50 MHz). Upsizing in OpenROAD should improve on the x1-cell estimate |
 
@@ -174,7 +174,7 @@ Area-driven design decisions, measured with Yosys against the IHP library:
   protocols feed CRCs one bit per instruction anyway, so the CRC became a
   1-bit engine fed automatically by 1-bit shifts: ~200 um^2.
 * The fetch was pipelined (an instruction register with a host-write
-  bypass) to take the 64:1 IMEM read out of the execute path. It is
+  bypass) to take the IMEM read mux out of the execute path. It is
   architecturally invisible, which the co-simulation and an explicit
   invariant check prove. Estimated critical path: 15.4 ns to 14.3 ns (typical).
 * The datapath feeding the shared shifter, CRC and justify units was moved
@@ -184,6 +184,20 @@ Area-driven design decisions, measured with Yosys against the IHP library:
   suites were rerun after the change.
 * Dropping computed jumps (`out pc`) was measured to save only ~10%, so the
   ISA was kept intact.
+
+## First runs through the real Tiny Tapeout flow
+
+The GitHub `gds` action (LibreLane + OpenROAD) is the authoritative check, and
+its first runs failed. Each failure taught something:
+
+| run | symptom | cause | fix |
+| --- | --- | --- | --- |
+| 1-2 | `GPL-0302 target density too low`, then `GRT-0010 Instance _061735_ is not placed` | the IHP I/O pad library is passed to synthesis, and its output pads (`IOPadOut4mA/16mA/30mA`) are described as plain buffers without `dont_use`. ABC picked four 120 x 120 um pads as strong drivers for high-fanout nets; they can never be placed in a standard-cell row | `"EXTRA_EXCLUDED_CELLS": ["sg13cmos5l_IOPad*"]` in `src/config.json` |
+| 3 | placement now completes, but at **67% utilization** (55,364 cells, 764,000 um^2), far above the 40% the quick Yosys estimate suggested | LibreLane's synthesis and buffering produce a much larger netlist than a bare `synth; abc` | instruction memory halved from 64 to 32 words (-23% area, same budget as an RP2040 PIO block); placement density back to the default 60% |
+| 4-5 | log stops at line 19,322 and the step runs for hours | most likely not a hang (identical code passed this point in seconds in runs 1-3): the live log shows output in buffered chunks while detailed routing of a 67%-full design on three routing layers runs very slowly | the area reduction above |
+
+Lesson: early area estimates from a plain Yosys run were 1.65x optimistic for
+this flow. Budget for that from the start.
 
 ## How to run everything
 

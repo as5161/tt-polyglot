@@ -12,7 +12,7 @@ SPDX-License-Identifier: Apache-2.0
 import argparse
 import sys
 
-from .asm import AsmError, load_file
+from .asm import IMEM_WORDS, AsmError, load_file
 from .sim import Cluster
 
 
@@ -85,8 +85,8 @@ def main(argv=None):
     for c, p in enumerate(progs):
         if ns.clkdiv is not None:
             p.cfg["clkdiv"] = ns.clkdiv
-        if origin + len(p.words) > 64:
-            print("error: programs do not fit in 64 words of IMEM", file=sys.stderr)
+        if origin + len(p.words) > IMEM_WORDS:
+            print(f"error: programs do not fit in {IMEM_WORDS} words of IMEM", file=sys.stderr)
             return 1
         load(bus, p, c, origin)
         print(f"core {c}: {p.name} at {origin}..{origin + len(p.words) - 1}")

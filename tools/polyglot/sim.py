@@ -104,7 +104,7 @@ class CoreCfg:
 
 
 class Core:
-    def __init__(self, aw=6):
+    def __init__(self, aw=5):
         self.aw = aw
         self.cfg = CoreCfg(aw)
         self.pc = 0
@@ -407,7 +407,7 @@ class Cluster:
 
     ID = 0x504701
 
-    def __init__(self, aw=6, nc=4):
+    def __init__(self, aw=5, nc=4):
         self.aw = aw
         self.nc = nc
         self.imem = [None] * (1 << aw)

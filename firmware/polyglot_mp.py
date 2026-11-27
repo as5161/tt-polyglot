@@ -24,6 +24,7 @@ import json
 R_CTRL, R_STEP, R_FLAGS, R_FIFOSTAT, R_PINS, R_ID = 0xA0, 0xA1, 0xA2, 0xA3, 0xA4, 0xA5
 R_POLY = 0xA8
 CHIP_ID = 0x504701
+IMEM_WORDS = 32
 
 
 def creg(core, n):
@@ -89,7 +90,7 @@ class Polyglot:
         """words: relocatable program words; regs: list of 5 config words
         computed for origin 0 (wrap fields are re-based here)."""
         o = self.next_origin if origin is None else origin
-        if o + len(words) > 64:
+        if o + len(words) > IMEM_WORDS:
             raise ValueError("IMEM full")
         reloc = [(w & ~0x3F) | ((w + o) & 0x3F) if (w >> 20) & 15 == 0 else w for w in words]
         self.write(o, *reloc)

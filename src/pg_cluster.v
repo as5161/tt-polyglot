@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  *
  * Host register map (24-bit words, 8-bit address) - see docs/registers.md
- *   0x00-0x3F  IMEM[addr]                                   (W, R)
+ *   0x00-0x1F  IMEM[addr] (2^AW words, AW=5 in project.v)    (W, R)
  *   0x80+8c+n  per-core registers, c = 0..3:
  *        n=0 CLKDIV    [15:0]
  *        n=1 EXECCTRL  WRAP_BOT[6:0] WRAP_TOP[13:7] JMP_PIN[18:14] SIDE_PINDIR[19] OD[20]

@@ -31,7 +31,7 @@ consumed only after the master has clocked out the **complete** 24-bit word
 
 | address | name | access | contents |
 |---|---|---|---|
-| `0x00-0x3F` | `IMEM[n]` | R/W | 24-bit instruction words |
+| `0x00-0x1F` | `IMEM[n]` | R/W | 24-bit instruction words (0x20-0x3F read as 0, writes ignored) |
 | `0x80 + 8c + 0` | `CLKDIV` | R/W | `[15:0]` divider (0, 1 = full speed) |
 | `0x80 + 8c + 1` | `EXECCTRL` | R/W | `WRAP_BOT[6:0] WRAP_TOP[13:7] JMP_PIN[18:14] SIDE_PINDIR[19] OD[20]` |
 | `0x80 + 8c + 2` | `SHIFTCTRL` | R/W | `OUT_DIR[0] IN_DIR[1] AUTOPULL[2] AUTOPUSH[3] PULL_TH[8:4] PUSH_TH[13:9] CRC_SRC[15:14] CRC_REFLECT[16]` (thresholds: 0 = 16; dir 0 = right/LSB first) |

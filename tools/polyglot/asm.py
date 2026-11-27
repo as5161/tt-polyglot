@@ -41,6 +41,8 @@ MOV_SRC = {"pins": 0, "x": 1, "y": 2, "null": 3, "crc": 4, "time": 5, "isr": 6, 
            "status": 8}
 SET_DST = {"pins": 0, "x": 1, "y": 2, "crc": 3, "pindirs": 4, "xh": 5, "yh": 6}
 
+IMEM_WORDS = 32   # must match AW in src/project.v (2**AW)
+
 OP = dict(jmp=0, wait=1, in_=2, out=3, pp=4, mov=5, flag=6, set=7, add=8, nop=15)
 
 
@@ -145,8 +147,8 @@ def assemble(src, name="prog"):
             prog.words.append(_instr(line, prog.labels, defines))
         except AsmError as e:
             raise AsmError(f"{name}:{lineno}: {e}") from None
-    if len(prog.words) > 64:
-        raise AsmError(f"{name}: program too long ({len(prog.words)} > 64)")
+    if len(prog.words) > IMEM_WORDS:
+        raise AsmError(f"{name}: program too long ({len(prog.words)} > {IMEM_WORDS})")
     return prog
 
 

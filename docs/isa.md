@@ -1,6 +1,6 @@
 # Polyglot instruction set
 
-Polyglot has **four identical cores** sharing a **64 x 24-bit instruction memory**.
+Polyglot has **four identical cores** sharing a **32 x 24-bit instruction memory**, the same budget as one Raspberry Pi RP2040 PIO block.
 Each core is a tiny processor whose only job is to move bits between pins and
 FIFOs at exactly the right clock cycle.
 
@@ -26,7 +26,7 @@ These rules are formally proven on the RTL (see [verification.md](verification.m
 
 | state | width | notes |
 |---|---|---|
-| `PC` | 6 | wraps from `WRAP_TOP` to `WRAP_BOT` for free |
+| `PC` | 5 | wraps from `WRAP_TOP` to `WRAP_BOT` for free |
 | `X`, `Y` | 16 | scratch / counters |
 | `ISR` + count | 16 + 0..16 | input shift register; pushes are **right-justified** |
 | `OSR` + count | 16 + 0..16 | output shift register; count 16 = empty |
@@ -71,7 +71,7 @@ instruction with no loss of delay bits). `side` = values for up to 3 side pins.
 
 | op | mnemonic | operands `[10:0]` |
 |---|---|---|
-| 0 | `JMP cond, addr` | `[10:7]` cond, `[5:0]` address |
+| 0 | `JMP cond, addr` | `[10:7]` cond, `[5:0]` address (`[4:0]` used with the 32-word IMEM) |
 | 1 | `WAIT pol src idx` | `[10]` polarity, `[9:8]` source, `[4:0]` index |
 | 2 | `IN src, n` | `[10:8]` source, `[3:0]` bit count (0 = 16) |
 | 3 | `OUT dst, n` | `[10:8]` destination, `[3:0]` bit count |

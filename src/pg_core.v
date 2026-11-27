@@ -452,7 +452,7 @@ module pg_core #(
   wire [AW-1:0] pc_inc = (pc == wrap_top) ? wrap_bot : pc + 1'b1;
 
   // next PC is computed combinationally so the cluster can fetch imem[pc_next]
-  // into ir_q in the same cycle: the 64:1 IMEM read leaves the execute path.
+  // into ir_q in the same cycle: the IMEM read mux leaves the execute path.
   always @* begin
     pc_next = pc;
     if (go && !stall) begin

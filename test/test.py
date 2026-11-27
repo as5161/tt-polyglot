@@ -77,7 +77,7 @@ class Chip:
 
     async def load(self, p, core, origin=None):
         o = self.next_origin if origin is None else origin
-        assert o + len(p.words) <= 64, "IMEM full"
+        assert o + len(p.words) <= asm.IMEM_WORDS, "IMEM full"
         self.next_origin = max(self.next_origin, o + len(p.words))
         await self.write(o, *p.relocated(o))
         r = p.regs(o)
