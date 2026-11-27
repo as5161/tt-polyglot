@@ -30,7 +30,8 @@
 
   "//": "CLOCK_PERIOD - Increase this in case you are getting setup time violations.",
   "//": "The value is in nanoseconds, so 20ns == 50MHz.",
-  "CLOCK_PERIOD": 20,
+  "//": "25 ns (40 MHz): the flow checks the slow corner (1.08 V, 125 C); the 3-core chip missed it at 20 ns.",
+  "CLOCK_PERIOD": 25,
 
   "//": "Hold slack margin - Increase them in case you are getting hold violations.",
   "PL_RESIZER_HOLD_SLACK_MARGIN": 0.1,
