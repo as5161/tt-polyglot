@@ -38,6 +38,9 @@
 
   "//": "Configuration docs: https://librelane.readthedocs.io/en/latest/reference/configuration.html",
 
+  "//rc": "Wire RC for placement/CTS/repair estimates. The tech LEF says ~0.095 fF/um, but extracted SPEF is ~0.19 fF/um (measured by josusanmartin/wirelingo on this tile). With the LEF value the resizer under-buffered long wires: gds #18 signed off with 354 max-slew and 140 max-cap violations, and its one failing slow-corner path (-0.44 ns at 25 ns) spends 4.2 ns in a nand3 driving 0.32 pF.",
+  "LAYERS_RC": {"*": {"Metal1": {"res": 0.00084375, "cap": 0.00014205}, "Metal2": {"res": 0.000515, "cap": 0.00019}, "Metal3": {"res": 0.000515, "cap": 0.00019}, "Metal4": {"res": 0.000515, "cap": 0.00019}}},
+
   "//": "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!",
   "//": "!!! DO NOT CHANGE ANYTHING BELOW THIS POINT !!!",
   "//": "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!",
