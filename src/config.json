@@ -102,6 +102,11 @@
   "//grt": "Wirelingo builds at 0.1; LibreLane default 0.3 derates routing capacity by 30 %",
   "OPENROAD_THREADS": 4,
 
+  "//repair": "Post-GRT design repair (slew/cap on global-route parasitics). gds #49: 0 slew violations after CTS, 32 after GRT, 161 after DRT (slow corner, weak a221oi_1/buf_1 driving long Metal3 wires); this step was off.",
+  "RUN_POST_GRT_DESIGN_REPAIR": true,
+  "GRT_DESIGN_REPAIR_MAX_SLEW_PCT": 30,
+  "GRT_DESIGN_REPAIR_MAX_CAP_PCT": 30,
+
   "//": "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!",
   "//": "!!! DO NOT CHANGE ANYTHING BELOW THIS POINT !!!",
   "//": "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!",
