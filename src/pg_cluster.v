@@ -45,7 +45,17 @@ module pg_cluster #(
     input  wire        hr_peek,
     input  wire [14:0] haddr,
     input  wire [23:0] hwdata,
-    output reg  [23:0] hrdata,
+    output wire [23:0] hrdata,   // word at haddr (simulation/debug: not used on chip)
+
+    // bit-serial read-back (see pg_host_spi): one shift register per core,
+    // next to that core's registers, and one for the global registers.  Only
+    // these 3 strobes go out to the cores and 1 bit per core comes back,
+    // instead of every readable register crossing the chip to one mux.
+    input  wire        sh_ld,
+    input  wire        sh_shift,
+    input  wire        sh_clr,
+    output wire        rd_msb,   // OR of the shift registers' MSBs (= MISO)
+    output wire        rd_d23,   // bit 23 of the word at haddr
 
     // pins
     input  wire [31:0] pins_in,
@@ -82,13 +92,13 @@ module pg_cluster #(
   wire [31:0] c_pdv [0:NC-1];
   wire [7:0]  c_fset [0:NC-1];
   wire [7:0]  c_fclr [0:NC-1];
-  wire [23:0] c_rd   [0:3];        // per-core host read data (n = 0..7)
   wire [23:0] c_imem [0:3];        // bank read port output (0 while the core runs)
   wire [15:0] c_x [0:3];
   wire [15:0] c_y [0:3];
   wire [15:0] c_crc [0:3];
-  wire [15:0] c_poly [0:3];
   wire [3:0]  tx_full_v, tx_empty_v, rx_full_v, rx_empty_v;
+  wire [23:0] c_word [0:3];        // this core's part of the word at haddr (0 if not its own)
+  wire [3:0]  c_msb;               // MSB of this core's read shift register
 
   genvar c;
   generate
@@ -230,8 +240,6 @@ module pg_cluster #(
           .flag_set(c_fset[c]), .flag_clr(c_fclr[c]),
           .x_o(c_x[c]), .y_o(c_y[c]), .crc_o(c_crc[c]));
 
-      assign c_poly[c] = poly;
-
       reg [23:0] rd;
       always @* begin
         case (hn)
@@ -245,23 +253,48 @@ module pg_cluster #(
           default: rd = {16'h0, exec_pend, 1'b0, rx_level, tx_level};
         endcase
       end
-      assign c_rd[c] = rd;
+
+      // read-back: this core's own share of the word at haddr, kept local
+      wire [5:0] rgrp = ra[7:2];
+      wire       rown = (ra[1:0] == c);
+      reg [23:0] word;
+      always @* begin
+        word = 24'h0;
+        if (imem_hit) begin
+          if (imem_bank == c) word = c_imem[c];
+        end else if (page0) begin
+          if (sel)                          word = rd;
+          else if (rgrp == 6'h2A && rown)   word = {8'h0, poly};       // 0xA8+c
+          else if (rgrp == 6'h2B && rown)   word = {8'h0, c_x[c]};     // 0xAC+c
+          else if (rgrp == 6'h2C && rown)   word = {8'h0, c_y[c]};     // 0xB0+c
+          else if (rgrp == 6'h2D && rown)   word = {8'h0, c_crc[c]};   // 0xB4+c
+        end
+      end
+      reg [23:0] rsh;
+      always @(posedge clk or negedge rst_n) begin
+        if (!rst_n)        rsh <= 24'h0;
+        else if (sh_clr)   rsh <= 24'h0;
+        else if (sh_shift) rsh <= {rsh[22:0], 1'b0};
+        else if (sh_ld)    rsh <= word;
+      end
+      assign c_word[c] = word;
+      assign c_msb[c]  = rsh[23];
     end
   endgenerate
 
   genvar u;
   generate
     for (u = NC; u < 4; u = u + 1) begin : g_absent
-      assign c_rd[u]   = 24'h0;
       assign c_imem[u] = 24'h0;
       assign c_x[u]    = 16'h0;
       assign c_y[u]    = 16'h0;
       assign c_crc[u]  = 16'h0;
-      assign c_poly[u] = 16'h0;
       assign tx_full_v[u]  = 1'b0;
       assign tx_empty_v[u] = 1'b1;
       assign rx_full_v[u]  = 1'b0;
       assign rx_empty_v[u] = 1'b1;
+      assign c_word[u]     = 24'h0;
+      assign c_msb[u]      = 1'b0;
     end
   endgenerate
 
@@ -299,30 +332,34 @@ module pg_cluster #(
     end
   end
 
-  // ------------------------------------------------------------ host read mux
+  // ------------------------------------------------------------ host read-back
+  // Global registers only; per-core words are produced inside g_core.  Exactly
+  // one source is non-zero for any address, so OR-ing them gives the word.
+  reg [23:0] gword;
   always @* begin
-    hrdata = 24'h0;
-    if (imem_hit) begin
-      hrdata = c_imem[imem_bank];       // registered: the word read at hr_peek
-    end else if (!page0) begin
-      hrdata = 24'h0;
-    end else if (host_core) begin
-      hrdata = c_rd[hc];
-    end else begin
+    gword = 24'h0;
+    if (page0 && !host_core) begin
       case (ra)
-        8'hA0: hrdata = {{(24-NC){1'b0}}, en};
-        8'hA2: hrdata = {16'h0, flags};
-        8'hA3: hrdata = {8'h0, rx_empty_v, rx_full_v, tx_empty_v, tx_full_v};
-        8'hA4: hrdata = pins_in[23:0];
-        8'hA5: hrdata = 24'h504702;
-        8'hA6: hrdata = {8'h0, timer};
-        8'hA8, 8'hA9, 8'hAA, 8'hAB: hrdata = {8'h0, c_poly[ra[1:0]]};
-        8'hAC, 8'hAD, 8'hAE, 8'hAF: hrdata = {8'h0, c_x[ra[1:0]]};
-        8'hB0, 8'hB1, 8'hB2, 8'hB3: hrdata = {8'h0, c_y[ra[1:0]]};
-        8'hB4, 8'hB5, 8'hB6, 8'hB7: hrdata = {8'h0, c_crc[ra[1:0]]};
-        default: hrdata = 24'h0;
+        8'hA0: gword = {{(24-NC){1'b0}}, en};
+        8'hA2: gword = {16'h0, flags};
+        8'hA3: gword = {8'h0, rx_empty_v, rx_full_v, tx_empty_v, tx_full_v};
+        8'hA4: gword = pins_in[23:0];
+        8'hA5: gword = 24'h504702;
+        8'hA6: gword = {8'h0, timer};
+        default: gword = 24'h0;
       endcase
     end
   end
+  reg [23:0] gsh;
+  always @(posedge clk or negedge rst_n) begin
+    if (!rst_n)        gsh <= 24'h0;
+    else if (sh_clr)   gsh <= 24'h0;
+    else if (sh_shift) gsh <= {gsh[22:0], 1'b0};
+    else if (sh_ld)    gsh <= gword;
+  end
+
+  assign hrdata = gword | c_word[0] | c_word[1] | c_word[2] | c_word[3];
+  assign rd_d23 = hrdata[23];
+  assign rd_msb = gsh[23] | (|c_msb);
 
 endmodule

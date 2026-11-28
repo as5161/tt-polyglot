@@ -29,7 +29,16 @@ module pg_host_spi (
     output wire        hr_peek,  // haddr is a new read address this cycle
     output wire [14:0] haddr,
     output reg  [23:0] hwdata,
-    input  wire [23:0] hrdata
+    // Bit-serial read-back: the read word is never brought here in parallel.
+    // Each source (every core, plus the cluster's global registers) keeps its
+    // own 24-bit shift register next to its data; this block only says when
+    // to load, shift and clear them, and MISO is the OR of their MSBs.  Same
+    // timing as the old central shift register (clear > shift > load).
+    output wire        sh_ld,     // load the word at haddr (the peek)
+    output wire        sh_shift,  // shift left one bit (SCK rising edge)
+    output wire        sh_clr,    // clear (CS_n high)
+    input  wire        rd_msb,    // OR of the shift registers' MSBs
+    input  wire        rd_d23     // bit 23 of the word being loaded (FIFO valid)
 );
   reg        sck_q;
   reg [4:0]  bitcnt;
@@ -38,8 +47,7 @@ module pg_host_spi (
   reg [14:0] addr;
   reg [14:0] waddr;
   reg [22:0] shin;
-  reg [23:0] shout;
-  reg        rd_req;      // load shout from hrdata (peek)
+  reg        rd_req;      // load the read shift registers (peek)
   reg        rd_next;     // peek after the pop has happened
   reg        peek_valid;  // peeked word was valid FIFO data
 
@@ -50,7 +58,10 @@ module pg_host_spi (
 
   assign haddr   = hw_en ? waddr : addr;
   assign hr_peek = rd_next;
-  assign miso  = shout[23];
+  assign miso     = rd_msb;
+  assign sh_ld    = rd_req & ~hdr;
+  assign sh_shift = rise;
+  assign sh_clr   = cs_n;
 
   always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
@@ -61,7 +72,6 @@ module pg_host_spi (
       addr       <= 15'h0;
       waddr      <= 15'h0;
       shin       <= 23'h0;
-      shout      <= 24'h0;
       rd_req     <= 1'b0;
       rd_next    <= 1'b0;
       peek_valid <= 1'b0;
@@ -74,20 +84,16 @@ module pg_host_spi (
       hr_en   <= 1'b0;
       rd_req  <= rd_next;
       rd_next <= 1'b0;
-      if (rd_req && !hdr) begin
-        shout      <= hrdata;
-        peek_valid <= is_fifo & hrdata[23];
-      end
+      if (rd_req && !hdr)
+        peek_valid <= is_fifo & rd_d23;
       if (cs_n) begin
         bitcnt     <= 5'd0;
         hdr        <= 1'b1;
-        shout      <= 24'h0;
         peek_valid <= 1'b0;
         rd_req     <= 1'b0;
         rd_next    <= 1'b0;
       end else if (rise) begin
         shin  <= shin_n[22:0];
-        shout <= {shout[22:0], 1'b0};
         if (hdr) begin
           if (bitcnt == 5'd15) begin
             hdr     <= 1'b0;

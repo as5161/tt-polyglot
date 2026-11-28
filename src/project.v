@@ -38,6 +38,7 @@ module tt_um_polyglot (
   end
 
   wire        hw_en, hr_en, hr_peek, miso;
+  wire        sh_ld, sh_shift, sh_clr, rd_msb, rd_d23;
   wire [14:0] haddr;
   wire [23:0] hwdata, hrdata;
   wire [15:0] pout, poe;
@@ -46,7 +47,8 @@ module tt_um_polyglot (
       .clk(clk), .rst_n(rst_n),
       .cs_n(ui_s1[7]), .sck(ui_s1[6]), .mosi(ui_s1[5]), .miso(miso),
       .hw_en(hw_en), .hr_en(hr_en), .hr_peek(hr_peek), .haddr(haddr),
-      .hwdata(hwdata), .hrdata(hrdata));
+      .hwdata(hwdata),
+      .sh_ld(sh_ld), .sh_shift(sh_shift), .sh_clr(sh_clr), .rd_msb(rd_msb), .rd_d23(rd_d23));
 
   wire [31:0] pins = {8'h00, ui_s1, miso, pout[14:8], uio_s1};
 
@@ -54,11 +56,12 @@ module tt_um_polyglot (
       .clk(clk), .rst_n(rst_n),
       .hw_en(hw_en), .hr_en(hr_en), .hr_peek(hr_peek), .haddr(haddr),
       .hwdata(hwdata), .hrdata(hrdata),
+      .sh_ld(sh_ld), .sh_shift(sh_shift), .sh_clr(sh_clr), .rd_msb(rd_msb), .rd_d23(rd_d23),
       .pins_in(pins), .pout(pout), .poe(poe));
 
   assign uo_out  = {miso, pout[14:8]};
   assign uio_out = pout[7:0];
   assign uio_oe  = poe[7:0];
 
-  wire _unused = &{ena, pout[15], poe[15:8], 1'b0};
+  wire _unused = &{ena, pout[15], poe[15:8], hrdata, 1'b0};   // hrdata: debug view only
 endmodule

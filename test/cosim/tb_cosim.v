@@ -14,7 +14,9 @@ module tb_cosim;
 
   pg_cluster #(.AW(7), .NC(4)) u (
     .clk(clk), .rst_n(rst_n), .hw_en(hw_en), .hr_en(hr_en), .hr_peek(hr_peek), .haddr(haddr),
-    .hwdata(hwdata), .hrdata(hrdata), .pins_in(pins), .pout(pout), .poe(poe));
+    .hwdata(hwdata), .hrdata(hrdata),
+    .sh_ld(1'b0), .sh_shift(1'b0), .sh_clr(1'b1), .rd_msb(), .rd_d23(),   // serial read-back: covered by test/test.py over SPI
+    .pins_in(pins), .pout(pout), .poe(poe));
 
   reg [75:0] stim [0:65535];
   integer n, k, f;
@@ -39,7 +41,7 @@ module tb_cosim;
       $fwrite(f, "%h %h %h %h %h", rd, pout, poe, u.flags, u.en);
       $fwrite(f, " %h %h %h %h %h %h %h %h %h %h %h %h %h %h", `CORE(0));
       $fwrite(f, " %h %h %h %h %h %h %h %h %h %h %h %h %h %h", `CORE(1));
-      $fwrite(f, " %h %h %h %h %h %h %h %h %h %h %h %h %h %h", `CORE(2));
+      $fwrite(f, " %h %h %h %h %h %h %h %h %h %h %h %h %h %h\n", `CORE(2));
       $fwrite(f, " %h %h %h %h %h %h %h %h %h %h %h %h %h %h\n", `CORE(3));
       #4 clk = 0;
     end
