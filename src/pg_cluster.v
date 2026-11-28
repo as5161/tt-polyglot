@@ -63,6 +63,7 @@ module pg_cluster #(
     output reg  [15:0] poe
 );
   localparam DEPTH = (1 << AW);
+  localparam WW = (AW > 7) ? 7 : AW;   // wrap field width (in-page when AW = 8)
 
   // ------------------------------------------------------------ global state
   reg [NC-1:0] en;
@@ -107,7 +108,7 @@ module pg_cluster #(
       wire wsel = hw_en && sel;
 
       reg [15:0] clkdiv;
-      reg [AW-1:0] wrap_bot, wrap_top;
+      reg [WW-1:0] wrap_bot, wrap_top;   // in-page (see pg_core: 7 bits when AW = 8)
       reg [4:0]  jmp_pin;
       reg        side_pindir, od;
       reg        out_dir, in_dir, autopull, autopush;
@@ -126,7 +127,7 @@ module pg_cluster #(
 
       always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
-          clkdiv <= 16'd0;  wrap_bot <= {AW{1'b0}};  wrap_top <= {AW{1'b1}};
+          clkdiv <= 16'd0;  wrap_bot <= {WW{1'b0}};  wrap_top <= {WW{1'b1}};
           jmp_pin <= 5'd0;  side_pindir <= 1'b0;  od <= 1'b0;
           out_dir <= 1'b0;  in_dir <= 1'b0;  autopull <= 1'b0;  autopush <= 1'b0;
           pull_th <= 5'd0;  push_th <= 5'd0;  crc_src <= 2'd0;  crc_reflect <= 1'b0;
@@ -135,7 +136,7 @@ module pg_cluster #(
         end else begin
           if (wsel && hn == 3'd0) clkdiv <= hwdata[15:0];
           if (wsel && hn == 3'd1) begin
-            wrap_bot <= hwdata[AW-1:0];  wrap_top <= hwdata[7+AW-1:7];
+            wrap_bot <= hwdata[WW-1:0];  wrap_top <= hwdata[7+WW-1:7];
             jmp_pin <= hwdata[18:14];  side_pindir <= hwdata[19];  od <= hwdata[20];
           end
           if (wsel && hn == 3'd2) begin
@@ -226,7 +227,7 @@ module pg_cluster #(
           .tick(tick), .exec_valid(exec_pend), .exec_instr(exec_ir), .exec_done(exec_done),
           .imem_next(imem_next), .pc_o(pc), .pc_next(pc_next),
           .pc_we(wsel && hn == 3'd6), .pc_wdata(hwdata[AW-1:0]), .restart(restart),
-          .wrap_bot(wrap_bot), .wrap_top(wrap_top), .jmp_pin(jmp_pin),
+          .wrap_bot({{(AW-WW){1'b0}}, wrap_bot}), .wrap_top({{(AW-WW){1'b0}}, wrap_top}), .jmp_pin(jmp_pin),
           .side_pindir(side_pindir), .od(od),
           .out_dir(out_dir), .in_dir(in_dir), .autopull(autopull), .autopush(autopush),
           .pull_th_f(pull_th), .push_th_f(push_th),
@@ -244,7 +245,7 @@ module pg_cluster #(
       always @* begin
         case (hn)
           3'd0: rd = {8'h0, clkdiv};
-          3'd1: rd = {3'b0, od, side_pindir, jmp_pin, {(7-AW){1'b0}}, wrap_top, {(7-AW){1'b0}}, wrap_bot};
+          3'd1: rd = {3'b0, od, side_pindir, jmp_pin, {(7-WW){1'b0}}, wrap_top, {(7-WW){1'b0}}, wrap_bot};
           3'd2: rd = {7'b0, crc_reflect, crc_src, push_th, pull_th, autopush, autopull, in_dir, out_dir};
           3'd3: rd = {5'b0, set_cnt, set_base, out_cnt, out_base};
           3'd4: rd = {12'b0, side_cnt, side_base, in_base};
