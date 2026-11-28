@@ -127,7 +127,8 @@
   "//": "Antennas: fixed before detailed routing (GRT margin 30) and again after it. gds #42 (3-core SRAM)",
   "//": "left 80 nets up to 3.4x the ratio after DRT with no post-DRT repair; its DRT took ~40 min, so",
   "//": "post-DRT diode repair (each pass re-runs DRT incrementally) now fits easily in the 6 h limit.",
-  "GRT_ANTENNA_REPAIR_MARGIN": 30,
+  "//antmargin": "gds #49: GRT-stage repair at margin 30 reported 0 violations, but 139 nets failed after DRT (GRT underestimates Metal3 wire) and the post-DRT passes took 1 h 55 min. Over-fix before DRT instead.",
+  "GRT_ANTENNA_REPAIR_MARGIN": 100,
   "DRT_ANTENNA_REPAIR_ITERS": 3,
 
   "FP_IO_HLENGTH": 2,
