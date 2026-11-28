@@ -23,7 +23,7 @@
 
   "//": "PL_TARGET_DENSITY_PCT - You can increase this if Global Placement fails with error GPL-0302.",
   "//": "Users have reported that values up to 80 worked well for them.",
-  "PL_TARGET_DENSITY_PCT": 40,
+  "PL_TARGET_DENSITY_PCT": 34,
 
   "//": "Keep the IHP I/O pad cells out of synthesis: the pad library lists them as buffers",
   "//": "and the mapper picked 4 huge output pads as strong drivers, which can never be placed.",
@@ -48,15 +48,15 @@
 
   "//": "Configuration docs: https://librelane.readthedocs.io/en/latest/reference/configuration.html",
 
-  "//sram": "Instruction banks: one IHP 256x32 SRAM per core, in a row along the bottom edge, pins up (FS).",
+  "//sram": "Instruction banks: one IHP 256x32 SRAM per core. Three along the bottom edge, pins up (FS), spread like josusanmartin/wirelingo's routing-proven 3-bank layout (x = 4.32, 653.28, 1302.72), and the fourth in the top-right corner, pins down (N); the top-left corner holds the tile's I/O pins (x 30..191 um) and stays free.",
   "VERILOG_DEFINES": ["PG_SRAM_MACRO"],
   "MACROS": {
     "RM_IHPSG13_1P_256x32_c2_bm_bist": {
       "instances": {
         "u_cluster.g_core[0].u_bank.sram": {"location": [4.32, 3.78], "orientation": "FS"},
-        "u_cluster.g_core[1].u_bank.sram": {"location": [436.80, 3.78], "orientation": "FS"},
-        "u_cluster.g_core[2].u_bank.sram": {"location": [869.28, 3.78], "orientation": "FS"},
-        "u_cluster.g_core[3].u_bank.sram": {"location": [1301.76, 3.78], "orientation": "FS"}
+        "u_cluster.g_core[1].u_bank.sram": {"location": [653.28, 3.78], "orientation": "FS"},
+        "u_cluster.g_core[2].u_bank.sram": {"location": [1302.72, 3.78], "orientation": "FS"},
+        "u_cluster.g_core[3].u_bank.sram": {"location": [1302.72, 585.90], "orientation": "N"}
       },
       "gds": ["pdk_dir::libs.ref/sg13cmos5l_sram/gds/RM_IHPSG13_1P_256x32_c2_bm_bist.gds"],
       "lef": ["pdk_dir::libs.ref/sg13cmos5l_sram/lef/RM_IHPSG13_1P_256x32_c2_bm_bist.lef"],
@@ -84,7 +84,7 @@
   "ERROR_ON_PDN_VIOLATIONS": 0,
   "EXTEND_STRIPES_SRAM_ARRAY_EVERY_OTHER": true,
   "EXTEND_STRIPES_PIN_FACE_MARGIN": 0,
-  "//pockets": "The three 15.84 um gaps between SRAMs stay as placement rows. gds #12 (this layout) failed DPL-0036 on 2 cells that could not climb out of a 119 um-tall pocket with the default 100 um vertical displacement, so allow 300. gds #13/#14 blocked the pockets (wide halos / FP_OBSTRUCTIONS): that removed every row below the SRAMs' top and OpenROAD's padding check then failed on all four SRAMs (DPL-0011). Wirelingo's proven floorplan also keeps rows beside its SRAMs.",
+  "//pockets": "The gaps between the SRAMs (232 um) stay as placement rows, as in Wirelingo's floorplan; PL_MAX_DISPLACEMENT_Y 300 kept from the 4-bank layout (harmless here).",
   "FP_MACRO_HORIZONTAL_HALO": 2.0,
   "PL_MAX_DISPLACEMENT_Y": 300,
   "FP_MACRO_VERTICAL_HALO": 0.48,
