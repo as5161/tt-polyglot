@@ -23,7 +23,9 @@ import json
 
 R_CTRL, R_STEP, R_FLAGS, R_FIFOSTAT, R_PINS, R_ID = 0xA0, 0xA1, 0xA2, 0xA3, 0xA4, 0xA5
 R_POLY = 0xA8
-CHIP_ID = 0x504701
+CHIP_ID = 0x504702
+IMEM_WORDS = 128          # words per core bank
+BANK_BASE = 0x400         # IMEM of core c: BANK_BASE + 0x100 * c
 
 
 def creg(core, n):
@@ -35,7 +37,7 @@ class Polyglot:
         self._cs, self._sck, self._mosi, self._miso = set_cs, set_sck, set_mosi, get_miso
         self._cs(1)
         self._sck(0)
-        self.next_origin = 0
+        self.next_origin = [0, 0, 0, 0]   # per core bank
 
     @classmethod
     def from_demoboard(cls, clock_hz=50_000_000, project="tt_um_polyglot"):
@@ -69,13 +71,13 @@ class Polyglot:
         return out
 
     def write(self, addr, *words):
-        b = bytearray([0x80, addr])
+        b = bytearray([0x80 | (addr >> 8) & 0x7F, addr & 0xFF])
         for w in words:
             b += bytes([(w >> 16) & 255, (w >> 8) & 255, w & 255])
         self._xfer(b)
 
     def read(self, addr, n=1):
-        r = self._xfer(bytes([0, addr]) + bytes(3 * n))
+        r = self._xfer(bytes([(addr >> 8) & 0x7F, addr & 0xFF]) + bytes(3 * n))
         vals = [(r[2 + 3 * i] << 16) | (r[3 + 3 * i] << 8) | r[4 + 3 * i] for i in range(n)]
         return vals if n > 1 else vals[0]
 
@@ -87,19 +89,20 @@ class Polyglot:
 
     def load(self, words, regs, poly, core, origin=None):
         """words: relocatable program words; regs: list of 5 config words
-        computed for origin 0 (wrap fields are re-based here)."""
-        o = self.next_origin if origin is None else origin
-        if o + len(words) > 64:
+        computed for origin 0 (wrap fields are re-based here).  The program
+        goes into `core`'s own bank; the core must be stopped."""
+        o = self.next_origin[core] if origin is None else origin
+        if o + len(words) > IMEM_WORDS:
             raise ValueError("IMEM full")
-        reloc = [(w & ~0x3F) | ((w + o) & 0x3F) if (w >> 20) & 15 == 0 else w for w in words]
-        self.write(o, *reloc)
+        reloc = [(w & ~0x7F) | ((w + o) & 0x7F) if (w >> 20) & 15 == 0 else w for w in words]
+        self.write(BANK_BASE + 0x100 * core + o, *reloc)
         wb, wt = regs[1] & 0x7F, (regs[1] >> 7) & 0x7F
         regs = list(regs)
         regs[1] = (regs[1] & ~0x3FFF) | (wb + o) | ((wt + o) << 7)
         self.write(creg(core, 0), *regs)
         self.write(R_POLY + core, poly)
         self.write(creg(core, 6), o)
-        self.next_origin = max(self.next_origin, o + len(words))
+        self.next_origin[core] = max(self.next_origin[core], o + len(words))
         return o
 
     def load_json(self, path, core, origin=None):

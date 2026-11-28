@@ -1,6 +1,7 @@
 # Area estimate + gate-level netlist (the official GDS comes from the
 # Tiny Tapeout LibreLane flow; this is for early sizing and GL simulation)
-read_verilog ../src/project.v ../src/pg_host_spi.v ../src/pg_cluster.v ../src/pg_core.v ../src/pg_fifo.v
+read_verilog -lib ../src/macros/RM_IHPSG13_1P_256x32_c2_bm_bist.v
+read_verilog -DPG_SRAM_MACRO ../src/project.v ../src/pg_host_spi.v ../src/pg_cluster.v ../src/pg_core.v ../src/pg_fifo.v ../src/pg_bank.v
 synth -top tt_um_polyglot -flatten
 dfflibmap -liberty @LIB@
 abc -D 20000 -liberty @LIB@

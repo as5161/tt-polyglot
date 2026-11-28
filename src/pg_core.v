@@ -11,7 +11,11 @@
 `default_nettype none
 
 module pg_core #(
-    parameter AW = 6
+    parameter AW = 6,
+    // EXT_IR = 0: the core registers imem_next into its own fetch register.
+    // EXT_IR = 1: imem_next already IS that register (a synchronous-read
+    // memory addressed with pc_next), so it is used directly.
+    parameter EXT_IR = 0
 ) (
     input  wire        clk,
     input  wire        rst_n,
@@ -21,7 +25,7 @@ module pg_core #(
     input  wire        exec_valid,    // host-injected instruction pending
     input  wire [23:0] exec_instr,
     output wire        exec_done,
-    input  wire [23:0] imem_next,     // imem[pc_next] (with host-write bypass)
+    input  wire [23:0] imem_next,     // EXT_IR=0: imem[pc_next]; EXT_IR=1: imem[pc] (registered)
     output wire [AW-1:0] pc_o,
     output reg  [AW-1:0] pc_next,
 
@@ -142,7 +146,8 @@ module pg_core #(
   endfunction
 
   // ---------------------------------------------------------------- decode
-  wire [23:0] ir      = exec_valid ? exec_instr : ir_q;
+  wire [23:0] ir_f    = EXT_IR ? imem_next : ir_q;
+  wire [23:0] ir      = exec_valid ? exec_instr : ir_f;
   wire [3:0]  op      = ir[23:20];
   wire        side_en = ir[19];
   wire [2:0]  side_v  = ir[18:16];
@@ -165,6 +170,10 @@ module pg_core #(
   reg         stall;
   reg         jump;
   reg [AW-1:0] jtarget;
+  // Banks larger than 128 words (AW = 8) are used as 128-word pages: the
+  // 7-bit JMP field and the 7-bit wrap fields address the current page, and
+  // MOV/OUT PC (and a host PC write) reach any word.  PM = in-page bits.
+  localparam [AW-1:0] PM = (AW > 7) ? 127 : {AW{1'b1}};
   reg [15:0]  nx, ny, nisr, nosr, ncrc;
   reg [4:0]   nisr_cnt, nosr_cnt;
 
@@ -258,7 +267,7 @@ module pg_core #(
           default: cond = 1'b0;
         endcase
         jump    = cond;
-        jtarget = a[AW-1:0];
+        jtarget = (pc & ~PM) | (a[AW-1:0] & PM);
       end
 
       // ------------------------------------------------------------ WAIT
@@ -449,10 +458,10 @@ module pg_core #(
   assign exec_done = exec_valid & ~stall;
 
   // ---------------------------------------------------------------- sequential
-  wire [AW-1:0] pc_inc = (pc == wrap_top) ? wrap_bot : pc + 1'b1;
+  wire [AW-1:0] pc_inc = ((pc & PM) == (wrap_top & PM)) ? ((pc & ~PM) | (wrap_bot & PM)) : pc + 1'b1;
 
   // next PC is computed combinationally so the cluster can fetch imem[pc_next]
-  // into ir_q in the same cycle: the 64:1 IMEM read leaves the execute path.
+  // into ir_q in the same cycle: the IMEM read mux leaves the execute path.
   always @* begin
     pc_next = pc;
     if (go && !stall) begin

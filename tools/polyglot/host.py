@@ -12,22 +12,27 @@ CORE_BASE = 0x80
 R_CLKDIV, R_EXECCTRL, R_SHIFTCTRL, R_PINCTRL, R_PINCTRL2, R_FIFO, R_PC, R_EXEC = range(8)
 R_CTRL, R_STEP, R_FLAGS, R_FIFOSTAT, R_PINS, R_ID, R_TIME = 0xA0, 0xA1, 0xA2, 0xA3, 0xA4, 0xA5, 0xA6
 R_POLY, R_DBG_X, R_DBG_Y, R_DBG_CRC = 0xA8, 0xAC, 0xB0, 0xB4
-CHIP_ID = 0x504701
+CHIP_ID = 0x504702
+BANK_BASE = 0x400   # IMEM of core c: BANK_BASE + 0x100 * c + word
 
 
 def creg(core, n):
     return CORE_BASE + 8 * core + n
 
 
+def imem(core, word=0):
+    return BANK_BASE + 0x100 * core + word
+
+
 def write_frame(addr, words):
-    b = bytearray([0x80, addr & 0xFF])
+    b = bytearray([0x80 | (addr >> 8) & 0x7F, addr & 0xFF])
     for w in words:
         b += bytes([(w >> 16) & 0xFF, (w >> 8) & 0xFF, w & 0xFF])
     return bytes(b)
 
 
 def read_frame(addr, n):
-    return bytes([0x00, addr & 0xFF]) + bytes(3 * n)
+    return bytes([(addr >> 8) & 0x7F, addr & 0xFF]) + bytes(3 * n)
 
 
 def parse_read(resp, n):
@@ -55,9 +60,9 @@ class Host:
         return self.read(R_ID)
 
     def load(self, prog, core, origin=None, start=False):
-        """Load an assembled Program into IMEM and configure `core`."""
+        """Load an assembled Program into `core`'s bank (core stopped) and configure it."""
         o = prog.origin if origin is None else origin
-        self.write(o, *prog.relocated(o))
+        self.write(imem(core, o), *prog.relocated(o))
         regs = prog.regs(o)
         self.write(creg(core, R_CLKDIV), regs[0], regs[1], regs[2], regs[3], regs[4])
         self.write(R_POLY + core, prog.cfg["poly"])

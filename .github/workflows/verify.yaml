@@ -13,7 +13,16 @@ jobs:
       - name: Lock-step co-simulation (RTL vs ISS)
         run: python3 test/cosim/run_cosim.py --seeds 100 --cycles 4000 --cov
       - name: Mutation testing (every injected bug must be caught)
-        run: python3 test/cosim/mutate.py 12
+        run: python3 test/cosim/mutate.py 30
+      - name: SRAM bank model vs the IHP SRAM's own Verilog model (lock-step)
+        run: |
+          # the two model files from IHP-Open-PDK (Apache-2.0) at a pinned commit
+          P=https://raw.githubusercontent.com/IHP-GmbH/IHP-Open-PDK/e73adb4045731ddec21634146d536380057f6a26/ihp-sg13g2/libs.ref/sg13g2_sram/verilog
+          D=$HOME/pdk/ihp-sg13cmos5l/libs.ref/sg13cmos5l_sram/verilog
+          mkdir -p $D
+          curl -fsSL -o $D/RM_IHPSG13_1P_256x32_c2_bm_bist.v $P/RM_IHPSG13_1P_256x32_c2_bm_bist.v
+          curl -fsSL -o $D/RM_IHPSG13_1P_core_behavioral_bm_bist.v $P/RM_IHPSG13_1P_core_behavioral_bm_bist.v
+          PDK_ROOT=$HOME/pdk test/bank/run.sh
   formal:
     runs-on: ubuntu-24.04
     steps:

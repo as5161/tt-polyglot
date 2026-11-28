@@ -36,8 +36,12 @@ MUTANTS = [
     ("pg_core.v", "end else if (tick && !exec_valid && dly != 5'd0) begin",
      "end else if (!exec_valid && dly != 5'd0) begin", "delay counts sysclk not ticks"),
     ("pg_core.v", "if (wsat && a[10]) flag_clr[a[2:0]] = 1'b1;", "", "WAIT FLAG doesn't auto-clear"),
-    ("pg_core.v", "wire [AW-1:0] pc_inc = (pc == wrap_top) ? wrap_bot : pc + 1'b1;",
+    ("pg_core.v", "wire [AW-1:0] pc_inc = ((pc & PM) == (wrap_top & PM)) ? ((pc & ~PM) | (wrap_bot & PM)) : pc + 1'b1;",
      "wire [AW-1:0] pc_inc = pc + 1'b1;", "wrap ignored"),
+    ("pg_core.v", "wire [AW-1:0] pc_inc = ((pc & PM) == (wrap_top & PM)) ? ((pc & ~PM) | (wrap_bot & PM)) : pc + 1'b1;",
+     "wire [AW-1:0] pc_inc = (pc == wrap_top) ? wrap_bot : pc + 1'b1;", "wrap not in-page (page 1 wraps to page 0)"),
+    ("pg_core.v", "        jtarget = (pc & ~PM) | (a[AW-1:0] & PM);",
+     "        jtarget = a[AW-1:0] & PM;", "JMP leaves the current page"),
     ("pg_core.v", "3'd5: nx = {a[7:0], x[7:0]};", "3'd5: nx = {a[7:0], 8'h0};", "SET XH clobbers low byte"),
     ("pg_cluster.v", "npout = (npout & ~c_pvm[i][15:0]) | (c_pvv[i][15:0] & c_pvm[i][15:0]);",
      "npout = npout | (c_pvv[i][15:0] & c_pvm[i][15:0]);", "pin write can't clear"),
@@ -46,15 +50,23 @@ MUTANTS = [
     ("pg_fifo.v", "assign full  = (cnt == 3'd4);", "assign full  = (cnt == 3'd3);", "FIFO depth 3"),
     ("pg_cluster.v", "end else if (exec_done || restart) begin", "end else if (exec_done) begin",
      "restart doesn't cancel EXEC"),
-    ("pg_cluster.v", "wire [23:0] imem_next = imem_wr_hit ? hwdata : imem[pc_next];",
-     "wire [23:0] imem_next = imem[pc_next];", "fetch bypass missing"),
+    ("pg_cluster.v", "wire bank_host = imem_hit && imem_bank == c && !en[c];",
+     "wire bank_host = imem_hit && imem_bank == c;", "host can write a running core's bank"),
+    ("pg_cluster.v", "wire [7:0]  bank_a = (bank_we | bank_hrd) ? ra : {{(8-AW){1'b0}}, pc_next};",
+     "wire [7:0]  bank_a = bank_we ? ra : {{(8-AW){1'b0}}, pc_next};", "IMEM read peek not addressed"),
+    ("pg_cluster.v", "assign c_imem[c] = en[c] ? 24'h0 : bank_q[23:0];",
+     "assign c_imem[c] = bank_q[23:0];", "IMEM read of a running core leaks fetch"),
+    ("pg_bank.v", "    if (we) mem[addr] <= wdata;\n    else    q <= mem[addr];",
+     "    if (we) mem[addr] <= wdata;\n    q <= mem[addr];", "bank reads during a write"),
+    ("pg_cluster.v", "wire       imem_hit  = (haddr[14:10] == 5'b00001) && (ra < DEPTH);",
+     "wire       imem_hit  = (haddr[13:10] == 4'b0001) && (ra < DEPTH);", "IMEM decode ignores A14"),
     ("pg_core.v", "    if (pc_we) pc_next = pc_wdata;\n", "", "host PC write not fetched"),
     ("pg_core.v", "4'd8:  cond = ~pins[jmp_pin];", "4'd8:  cond = ~pins[jmp_pin+1];", "!PIN wrong pin"),
 ]
 
 
 def main():
-    seeds = int(sys.argv[1]) if len(sys.argv) > 1 else 20
+    seeds = int(sys.argv[1]) if len(sys.argv) > 1 else 30
     survived = 0
     tested = 0
     for fname, old, new, desc in MUTANTS:
@@ -62,7 +74,8 @@ def main():
             continue
         tmp = tempfile.mkdtemp()
         for f in os.listdir(SRC):
-            shutil.copy(os.path.join(SRC, f), tmp)
+            if os.path.isfile(os.path.join(SRC, f)):
+                shutil.copy(os.path.join(SRC, f), tmp)
         p = os.path.join(tmp, fname)
         s = open(p).read()
         if old not in s:
@@ -70,7 +83,8 @@ def main():
             continue
         open(p, "w").write(s.replace(old, new, 1))
         r = subprocess.run([sys.executable, os.path.join(HERE, "run_cosim.py"), "--seeds", str(seeds),
-                            "--cycles", "2000", "--src", tmp], capture_output=True, text=True)
+                            "--cycles", "2000", "--src", tmp, "--work", os.path.join(tmp, "work")],
+                           capture_output=True, text=True)
         tested += 1
         killed = r.returncode != 0
         survived += not killed

@@ -81,7 +81,7 @@ class CoreCfg:
     def __init__(self, aw):
         self.clkdiv = 0
         self.wrap_bot = 0
-        self.wrap_top = (1 << aw) - 1
+        self.wrap_top = (1 << min(aw, 7)) - 1   # 7-bit field (in-page when aw = 8)
         self.jmp_pin = 0
         self.side_pindir = 0
         self.od = 0
@@ -104,8 +104,11 @@ class CoreCfg:
 
 
 class Core:
-    def __init__(self, aw=6):
+    def __init__(self, aw=7):
         self.aw = aw
+        # JMP and wrap fields are 7 bits: with 256-word banks (aw = 8) they
+        # address the current 128-word page (MOV/OUT PC reach any word)
+        self.page_mask = 0x7F if aw > 7 else (1 << aw) - 1
         self.cfg = CoreCfg(aw)
         self.pc = 0
         self.x = self.y = self.isr = self.osr = self.crc = 0
@@ -181,7 +184,8 @@ class Core:
             elif cond_sel == 10:
                 cond = not self.rx.full
             st["jump"] = cond
-            st["jt"] = a & aw_mask
+            pm = self.page_mask
+            st["jt"] = (self.pc & ~pm & aw_mask) | (a & pm)   # in-page target (128-word pages when aw = 8)
 
         elif op == OP_WAIT:
             pol = (a >> 10) & 1
@@ -389,7 +393,11 @@ class Core:
             if st["jump"]:
                 self.pc = st["jt"]
             elif not st["ev"]:
-                self.pc = self.cfg.wrap_bot if self.pc == self.cfg.wrap_top else (self.pc + 1) & ((1 << self.aw) - 1)
+                pm = self.page_mask
+                if (self.pc & pm) == (self.cfg.wrap_top & pm):
+                    self.pc = (self.pc & ~pm & ((1 << self.aw) - 1)) | (self.cfg.wrap_bot & pm)
+                else:
+                    self.pc = (self.pc + 1) & ((1 << self.aw) - 1)
         elif st["tick"] and not st["ev"] and self.dly != 0:
             self.dly -= 1
         if pc_we:
@@ -405,12 +413,16 @@ class Core:
 class Cluster:
     """Bit/cycle-exact model of pg_cluster."""
 
-    ID = 0x504701
+    ID = 0x504702
+    BANK_BASE = 0x400          # IMEM of core c: BANK_BASE + 0x100 * c + word
 
-    def __init__(self, aw=6, nc=4):
+    def __init__(self, aw=8, nc=4):
         self.aw = aw
         self.nc = nc
-        self.imem = [None] * (1 << aw)
+        # one 256-word bank per core slot; dout = the bank's output register,
+        # which is the core's fetch register (it holds bank[pc])
+        self.banks = [[0] * 256 for _ in range(4)]
+        self.dout = [0] * 4
         self.cores = [Core(aw) for _ in range(nc)]
         self.en = 0
         self.flags = 0
@@ -418,11 +430,25 @@ class Cluster:
         self.pout = 0
         self.poe = 0
 
+    def imem_slot(self, addr):
+        """(bank, word) if addr is an IMEM word, else None."""
+        if (addr >> 10) == 1 and (addr & 0xFF) < (1 << self.aw):
+            return (addr >> 8) & 3, addr & 0xFF
+        return None
+
     # ------------------------------------------------------------------ host read
     def read(self, addr, pins):
+        im = self.imem_slot(addr)
+        if im is not None:
+            b = im[0]
+            return self.dout[b] if b < self.nc and not (self.en >> b) & 1 else 0
+        if addr >> 8:
+            return 0
         if addr < 0x80:
-            return self.imem[addr] if addr < (1 << self.aw) else 0
+            return 0
         if 0x80 <= addr < 0xA0:
+            if (addr >> 3) & 3 >= self.nc:
+                return 0          # empty core slot
             core = self.cores[(addr >> 3) & 3]
             c = core.cfg
             n = addr & 7
@@ -448,6 +474,8 @@ class Cluster:
             return self.flags
         if addr == 0xA3:
             v = 0
+            for i in range(self.nc, 4):                     # empty slots read "empty"
+                v |= 1 << (4 + i) | 1 << (12 + i)
             for i, core in enumerate(self.cores):
                 v |= core.tx.full << i
                 v |= core.tx.empty << (4 + i)
@@ -461,18 +489,19 @@ class Cluster:
         if addr == 0xA6:
             return self.timer
         if 0xA8 <= addr < 0xAC:
-            return self.cores[addr & 3].cfg.poly
+            return self.cores[addr & 3].cfg.poly if (addr & 3) < self.nc else 0
         if 0xAC <= addr < 0xB0:
-            return self.cores[addr & 3].x
+            return self.cores[addr & 3].x if (addr & 3) < self.nc else 0
         if 0xB0 <= addr < 0xB4:
-            return self.cores[addr & 3].y
+            return self.cores[addr & 3].y if (addr & 3) < self.nc else 0
         if 0xB4 <= addr < 0xB8:
-            return self.cores[addr & 3].crc
+            return self.cores[addr & 3].crc if (addr & 3) < self.nc else 0
         return 0
 
     # ------------------------------------------------------------------ one clock
-    def cycle(self, hw_en=0, hr_en=0, haddr=0, hwdata=0, pins=0):
+    def cycle(self, hw_en=0, hr_en=0, haddr=0, hwdata=0, pins=0, hr_peek=0):
         rdata = self.read(haddr, pins)
+        en_now = self.en
         w = lambda a: hw_en and haddr == a  # noqa: E731
         w_ctrl, w_step, w_flags = w(0xA0), w(0xA1), w(0xA2)
 
@@ -482,8 +511,7 @@ class Cluster:
             div_tick = bool((self.en >> i) & 1) and core.divcnt == 0
             step = w_step and (hwdata >> i) & 1
             tick = bool(div_tick or step)
-            imw = self.imem[core.pc]
-            st = core.evaluate(tick, imw if imw is not None else 0, pins, self.flags, self.timer)
+            st = core.evaluate(tick, self.dout[i], pins, self.flags, self.timer)
             effects.append(st)
 
         # flags & pins
@@ -520,7 +548,7 @@ class Cluster:
             if w(base + 0):
                 c.clkdiv = hwdata & 0xFFFF
             if w(base + 1):
-                am = (1 << self.aw) - 1
+                am = (1 << min(self.aw, 7)) - 1
                 c.wrap_bot = hwdata & am
                 c.wrap_top = (hwdata >> 7) & am
                 c.jmp_pin = (hwdata >> 14) & 31
@@ -547,8 +575,17 @@ class Cluster:
             if w(0xA8 + i):
                 c.poly = hwdata & 0xFFFF
 
-        if hw_en and haddr < 0x80 and haddr < (1 << self.aw):
-            self.imem[haddr] = hwdata & 0xFFFFFF
+        # instruction banks: the host owns a stopped core's port for a write or
+        # a read peek; otherwise every bank fetches bank[pc_next] (= new pc)
+        im = self.imem_slot(haddr)
+        for i, core in enumerate(self.cores):
+            host = im is not None and im[0] == i and not (en_now >> i) & 1
+            if host and hw_en:
+                self.banks[i][im[1]] = hwdata & 0xFFFFFF
+            elif host and hr_peek:
+                self.dout[i] = self.banks[i][im[1]]
+            else:
+                self.dout[i] = self.banks[i][core.pc]
         self.timer = (self.timer + 1) & 0xFFFF
         if w_ctrl:
             self.en = hwdata & ((1 << self.nc) - 1)
@@ -559,7 +596,7 @@ class Cluster:
     def snapshot(self):
         """Architectural state compared against the RTL every cycle."""
         s = [self.pout, self.poe, self.flags, self.en]
-        for c in self.cores:
+        for i, c in enumerate(self.cores):
             s += [c.pc, c.x, c.y, c.isr, c.osr, c.crc, c.isr_cnt, c.osr_cnt, c.dly,
-                  c.tx.cnt, c.rx.cnt, c.exec_pend, 0 if c.rx.empty else c.rx.head]
+                  c.tx.cnt, c.rx.cnt, c.exec_pend, 0 if c.rx.empty else c.rx.head, self.dout[i]]
         return s

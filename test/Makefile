@@ -6,7 +6,7 @@ SIM ?= icarus
 FST ?= -fst # Use more efficient FST format
 TOPLEVEL_LANG ?= verilog
 SRC_DIR = $(PWD)/../src
-PROJECT_SOURCES = project.v pg_host_spi.v pg_cluster.v pg_core.v pg_fifo.v
+PROJECT_SOURCES = project.v pg_host_spi.v pg_cluster.v pg_core.v pg_fifo.v pg_bank.v
 
 ifneq ($(GATES),yes)
 
@@ -29,6 +29,9 @@ VERILOG_SOURCES += $(PDK_LIBS_REF)/$(PDK_CELL_PREFIX)_io/verilog/$(PDK_CELL_PREF
 # Newer PDK versions ship the UDP (user-defined primitive) models in a separate file
 VERILOG_SOURCES += $(wildcard $(PDK_LIBS_REF)/$(PDK_CELL_PREFIX)_stdcell/verilog/$(PDK_CELL_PREFIX)_udp.v)
 VERILOG_SOURCES += $(PDK_LIBS_REF)/$(PDK_CELL_PREFIX)_stdcell/verilog/$(PDK_CELL_PREFIX)_stdcell.v
+# IHP SRAM macro (instruction banks): its functional model and behavioral core
+VERILOG_SOURCES += $(PDK_LIBS_REF)/$(PDK_CELL_PREFIX)_sram/verilog/RM_IHPSG13_1P_256x32_c2_bm_bist.v
+VERILOG_SOURCES += $(PDK_LIBS_REF)/$(PDK_CELL_PREFIX)_sram/verilog/RM_IHPSG13_1P_core_behavioral_bm_bist.v
 
 # this gets copied in by the GDS action workflow
 VERILOG_SOURCES += $(PWD)/gate_level_netlist.v

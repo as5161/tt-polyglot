@@ -1,11 +1,11 @@
 ## How it works
 
-Polyglot is a **programmable protocol emulator**: four tiny cycle-exact
+Polyglot is a **programmable protocol emulator**: three tiny cycle-exact
 processors ("cores") whose instructions are all about pins, shift registers
 and time. A protocol is a program, not a circuit, so the chip can learn
 protocols that did not exist when it was made.
 
-* 4 cores, shared 64 x 24-bit instruction memory (loaded over SPI)
+* 4 cores, each with its own 128-word instruction bank in an IHP SRAM macro (loaded over SPI)
 * every instruction takes exactly `1 + delay` ticks (delay 0..31), and each core has a 16-bit clock divider
 * per core: X/Y registers, 16-bit in/out shift registers with autopush/autopull,
   4-deep TX and RX FIFOs, a 16-bit serial CRC engine with programmable polynomial

@@ -1,3 +1,7 @@
+[tasks]
+int_ir
+ext_ir
+
 [options]
 mode prove
 depth 4
@@ -7,6 +11,8 @@ smtbmc z3
 
 [script]
 read -formal pg_core.v
+chparam -set AW 8 pg_core
+ext_ir: chparam -set EXT_IR 1 pg_core
 prep -top pg_core
 
 [files]

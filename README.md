@@ -6,22 +6,22 @@ Polyglot is an open-source, general-purpose **protocol emulator ASIC** for the
 [Jane Street Protocol Emulator competition](https://tinytapeout.com/competitions/jane-street-tt-protocol-emulator/)
 on Tiny Tapeout (IHP 130 nm CMOS5L, 8x4 tiles).
 
-It contains **no UART, no SPI, no I2C**. It has four tiny cycle-exact
+It contains **no UART, no SPI, no I2C**. It has three tiny cycle-exact
 processors whose instructions are all about pins, shift registers and time.
 Every protocol is a program, so the chip can be taught protocols nobody
 planned for.
 
 ```
-              ┌─────────────────── 64 x 24-bit shared IMEM ──────────────────┐
- RP2350 ─SPI─►│ host port: load / start / single-step / inject / FIFOs / debug│
-              └──┬──────────────┬──────────────┬──────────────┬──────────────┘
-           ┌─────▼────┐   ┌─────▼────┐   ┌─────▼────┐   ┌─────▼────┐
-           │  core 0  │   │  core 1  │   │  core 2  │   │  core 3  │   each: X, Y, ISR, OSR,
-           │ div  CRC │   │ div  CRC │   │ div  CRC │   │ div  CRC │   16-bit divider, CRC-16,
-           │ TX⇅RX FIFO│  │ TX⇅RX FIFO│  │ TX⇅RX FIFO│  │ TX⇅RX FIFO│  side-set, open-drain
-           └─────┬────┘   └─────┬────┘   └─────┬────┘   └─────┬────┘
-                 └───── 8 flags ─── timer ─── pin arbitration ───┘
-                         ui[4:0]  uo[6:0]  uio[7:0] (bidirectional)
+              ┌────────────── 32 x 24-bit shared IMEM ─────────────┐
+ RP2350 ─SPI─►│ host port: load / start / step / inject / FIFOs    │
+              └──┬────────────────┬────────────────┬───────────────┘
+           ┌─────▼─────┐    ┌─────▼─────┐    ┌─────▼─────┐   each: X, Y, ISR, OSR,
+           │  core 0   │    │  core 1   │    │  core 2   │   16-bit divider, CRC-16,
+           │ div  CRC  │    │ div  CRC  │    │ div  CRC  │   side-set, open-drain
+           │TX⇅RX FIFO │    │TX⇅RX FIFO │    │TX⇅RX FIFO │
+           └─────┬─────┘    └─────┬─────┘    └─────┬─────┘
+                 └──── 8 flags ── timer ── pin arbitration
+                       ui[4:0]  uo[6:0]  uio[7:0] (bidirectional)
 ```
 
 ## What it speaks today (all in `programs/`, all tested)
@@ -36,7 +36,7 @@ planned for.
 | 10BASE-T Manchester | 6 | *never planned*: differential, **10 Mbit/s at 60 MHz** |
 | USB 1.1 low-speed TX | 30 | *never planned*: NRZI, **bit stuffing**, EOP, all in software |
 
-Four can run at once. The test suite runs UART + SPI + WS2812 + a pulse meter
+Three can run at once. The test suite runs UART + SPI + a pulse meter
 written *inside the test* concurrently.
 
 ## What makes the architecture different
@@ -65,13 +65,15 @@ written *inside the test* concurrently.
 | lock-step co-simulation, RTL vs golden model, random programs + host traffic + pins, ~55 fields/cycle | **2.5 M cycles on final RTL, 0 mismatches**, 55/55 opcode bins |
 | mutation testing of the checker | **21/21** injected bugs caught |
 | formal (SymbiYosys + Z3, unbounded) | timing contract, FIFO and SPI invariants **proven** (and found a latent SPI bug) |
-| protocol tests through the real SPI port (cocotb) | **9/9** |
-| same tests on the IHP gate-level netlist | **9/9** |
+| protocol tests through the real SPI port (cocotb) | **10/10** |
+| same tests on the IHP gate-level netlist | **10/10** |
 | Verilator `-Wall` lint | clean |
 
 ## Physical (pre-layout, Yosys + IHP CMOS5L)
 
-~30k cells, 3,347 flops, **462,000 um^2 = 46%** of the 8x4 tiles.
+**v2 (branch v2-sram):** 4 cores, each with its own IHP 256x32 SRAM bank (128 words used today), 251,000 um^2 of logic in Yosys plus four 49,500 um^2 macros. Removing the 768-flop shared IMEM and its read muxes made 4 cores smaller than 3 were.
+
+v1: about 287,000 um^2 of cells and 2,162 flops in Yosys. The real LibreLane flow is about 1.65x larger. Full-flow runs showed the binding limit is horizontal routing on Metal3 (the only horizontal signal layer below Metal5): 4 cores with 64 words placed at 72% and could not route; 4 cores with 32 words placed at 45% but Metal3 demand was 104%; the shipped design (3 cores, 32 words) cuts another 19%. See [docs/verification.md](docs/verification.md#first-runs-through-the-real-tiny-tapeout-flow).
 Critical-path estimate (NLDM, x1 cells, before OpenROAD upsizing): 12.8 ns
 typical / 20 ns slow corner. The flow targets 50 MHz, and 60 MHz is expected
 at typical silicon.
@@ -93,7 +95,8 @@ On the demo board: `firmware/polyglot_mp.py` (MicroPython, RP2350).
 
 | path | contents |
 |---|---|
-| `src/` | RTL: `pg_core.v` (core), `pg_cluster.v` (IMEM, FIFOs, pins, registers), `pg_host_spi.v`, `pg_fifo.v`, `project.v` (top) |
+| `src/` | RTL: `pg_core.v` (core), `pg_cluster.v` (banks, FIFOs, pins, registers), `pg_bank.v` (SRAM bank), `pg_host_spi.v`, `pg_fifo.v`, `project.v` (top) |
+| `librelane_plugin_polyglot.py`, `flow/`, `src/pdn_cfg.tcl` | SRAM power-stripe and pin-diode flow steps, adapted (Apache-2.0) from kdp1965/ihp-um-janestreet-prism via josusanmartin/wirelingo |
 | `tools/polyglot/` | assembler (`asm.py`), cycle-accurate golden model (`sim.py`), simulator CLI (`run.py`), host driver (`host.py`) |
 | `programs/` | example programs |
 | `test/` | cocotb protocol tests, `cosim/` co-simulation and mutation testing |

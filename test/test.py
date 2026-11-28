@@ -40,7 +40,7 @@ class Chip:
     def __init__(self, dut):
         self.dut = dut
         self.ui = 0x80          # ui7 = CS_n (idle high), ui6 = SCK, ui5 = MOSI
-        self.next_origin = 0
+        self.next_origin = [0, 0, 0, 0]   # next free word in each core's bank
         dut.ui_in.value = self.ui
 
     def set_ui(self, n, v):
@@ -76,10 +76,11 @@ class Chip:
         return r if n > 1 else r[0]
 
     async def load(self, p, core, origin=None):
-        o = self.next_origin if origin is None else origin
-        assert o + len(p.words) <= 64, "IMEM full"
-        self.next_origin = max(self.next_origin, o + len(p.words))
-        await self.write(o, *p.relocated(o))
+        """Load p into core's own bank (the core must be stopped) and configure it."""
+        o = self.next_origin[core] if origin is None else origin
+        assert o + len(p.words) <= asm.IMEM_WORDS, "IMEM bank full"
+        self.next_origin[core] = max(self.next_origin[core], o + len(p.words))
+        await self.write(H.imem(core, o), *p.relocated(o))
         r = p.regs(o)
         await self.write(H.creg(core, 0), r[0], r[1], r[2], r[3], r[4])
         await self.write(H.R_POLY + core, p.cfg["poly"])
@@ -169,14 +170,36 @@ def crc16_modbus(data):
     return c
 
 
+async def last_core(chip):
+    """Index of the highest core on this build (src/project.v sets NC): EN
+    keeps only the bits of cores that exist.
+
+    Every bank first gets "jmp 0" at word 0 (where a core starts after reset),
+    so the briefly enabled cores spin on a known instruction.  On the
+    gate-level netlist the IHP SRAM model starts as X (silicon: random), and a
+    core executing X would poison its state and the read-back path."""
+    spin = asm.assemble("jmp 0").words[0]
+    for c in range(4):
+        await chip.write(H.imem(c, 0), spin)
+    await chip.write(H.R_CTRL, 0xF)
+    en = await chip.read(H.R_CTRL)
+    await chip.write(H.R_CTRL, 0)
+    assert en in (0x1, 0x3, 0x7, 0xF), hex(en)
+    return bin(en).count("1") - 1
+
+
 # ------------------------------------------------------------------ tests
 @cocotb.test()
 async def test_host_interface(dut):
     """ID, IMEM/register read-back, EXEC injection, single-step."""
     chip = await setup(dut)
     assert await chip.read(H.R_ID) == H.CHIP_ID
-    await chip.write(0, 0x123456, 0xABCDEF, 0x0F0F0F)
-    assert await chip.read(0, 3) == [0x123456, 0xABCDEF, 0x0F0F0F]
+    L = await last_core(chip)
+    await chip.write(H.imem(L - 1, 5), 0x00BEEF)
+    await chip.write(H.imem(L, 5), 0x123456, 0xABCDEF, 0x0F0F0F)
+    assert await chip.read(H.imem(L, 5), 3) == [0x123456, 0xABCDEF, 0x0F0F0F]
+    assert await chip.read(H.imem(L - 1, 5)) == 0x00BEEF    # banks are separate
+    assert await chip.read(0x00) == 0                   # page 0 below 0x80 is unmapped
     await chip.write(H.creg(2, 3), 0x7FFFF)
     assert await chip.read(H.creg(2, 3)) == 0x7FFFF
     # EXEC: set x, 0x5A on core 1 (core disabled) -> visible in debug register
@@ -522,9 +545,11 @@ async def test_usb_lowspeed_tx(dut):
 
 
 @cocotb.test()
-async def test_four_protocols_at_once(dut):
-    """UART TX, SPI master, WS2812 and a runtime-written pulse meter run
-    concurrently on the four cores."""
+async def test_three_protocols_at_once(dut):
+    """UART TX, SPI master and a runtime-written pulse meter run
+    concurrently; WS2812 is then loaded into core 2's bank while cores 0
+    and 1 keep running (each core owns its bank, so reloading one core never
+    disturbs the others)."""
     chip = await setup(dut)
     pulse = asm.assemble("""
         .program pulse_meter      ; written at test time: measures high pulses on ui1
@@ -542,24 +567,59 @@ async def test_four_protocols_at_once(dut):
     """)
     await chip.load(prog("uart_tx", clkdiv=2), 0)
     await chip.load(prog("spi_master"), 1)
-    await chip.load(prog("ws2812", clkdiv=1), 2)
-    await chip.load(pulse, 3)
-    await chip.start(0xF)
+    await chip.load(pulse, 2)
+    await chip.start(0x7)
     log = []
     cocotb.start_soon(spi_slave(dut, [0x11, 0x22], log))
     got = []
     mon = cocotb.start_soon(uart_rx_monitor(dut, 0, 16, 3, got))
     await chip.push(0, *b"abc")
     await chip.push(1, 0x55, 0xAA)
-    await chip.push(2, 0xF0F0)
     for width in (40, 100):
         chip.set_ui(1, 1)
         await ClockCycles(dut.clk, width)
         chip.set_ui(1, 0)
         await ClockCycles(dut.clk, 30)
-    widths = await chip.pop_n(3, 2)
+    widths = await chip.pop_n(2, 2)
     spi = await chip.pop_n(1, 2)
     await mon
     assert bytes(got) == b"abc"
     assert log == [0x55, 0xAA] and spi == [0x11, 0x22]
     assert [abs(w * 2 - t) <= 3 for w, t in zip(widths, (40, 100))] == [True, True], widths
+    # re-purpose core 2 as a WS2812 driver while cores 0 and 1 stay enabled
+    await chip.write(H.R_CTRL, 0x3)                     # stop core 2 only
+    await chip.load(prog("ws2812", clkdiv=1), 2, origin=0)
+    await chip.push(2, 0xA5A5)
+    tr = []
+    rec = cocotb.start_soon(record(dut, 12 * 16 + 1200, lambda o: (o >> 1) & 1, tr))
+    await chip.write(H.R_CTRL, 0x7 | 0x4 << 4 | 0x4 << 8)   # restart core 2, keep 0-1 running
+    await rec
+    highs, n = [], 0
+    for v in tr:
+        if v:
+            n += 1
+        elif n:
+            highs.append(n)
+            n = 0
+    bits = [1 if h >= 6 else 0 for h in highs]
+    assert int("".join(map(str, bits[:16])), 2) == 0xA5A5, bits
+
+
+@cocotb.test()
+async def test_bank_ownership(dut):
+    """A running core's bank is protected: host writes are ignored and reads
+    return 0; once the core stops the bank is accessible again."""
+    chip = await setup(dut)
+    L = await last_core(chip)            # the highest core (3 on 4-core builds)
+    p = asm.assemble("add x, 1\njmp 0")
+    await chip.load(p, L, 0)
+    await chip.start(1 << L)
+    await chip.write(H.imem(L, 0), 0xFFFFFF)            # ignored: core L runs
+    assert await chip.read(H.imem(L, 0)) == 0
+    x1 = await chip.read(H.R_DBG_X + L)
+    await ClockCycles(dut.clk, 50)
+    assert (await chip.read(H.R_DBG_X + L) - x1) & 0xFFFF > 10   # program intact
+    await chip.write(H.R_CTRL, 0)
+    assert await chip.read(H.imem(L, 0), 2) == p.words
+    st = await chip.read(H.R_FIFOSTAT)
+    assert (st >> 7) & 1 and (st >> 15) & 1 and not (st >> 3) & 1   # slot 3 FIFOs empty (or absent)
