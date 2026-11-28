@@ -1,4 +1,5 @@
-# Copied from kdp1965/ihp-um-janestreet-prism (Apache-2.0), unmodified unless noted.
+# Copied from kdp1965/ihp-um-janestreet-prism (Apache-2.0), unmodified unless noted
+# (Polyglot: no diode on tie-driven pins).
 # One antenna diode on every signal input pin of every hard macro whose master
 # name starts with --macro-prefix (the IHP SRAMs).  Their LEF carries no
 # antenna data, so OpenROAD's rule-based check cannot see the nets that drive
@@ -10,6 +11,17 @@ import odb
 
 from reader import click_odb   # LibreLane's odbpy directory is on the path for OdbpyStep scripts
 from diodes import DiodeInserter
+
+
+def tie_driven(net):
+    # Polyglot change: pins tied to a constant (A_BM, A_DLY, the BIST port) are
+    # driven by a tiehi/tielo placed next to the pin; that net is a few um long
+    # and cannot collect antenna charge, so it needs no diode.  gds #17 had 768
+    # diodes, most on such pins, crowding the rows at the SRAM pin faces.
+    for it in net.getITerms():
+        if it.isOutputSignal() and "tie" in it.getInst().getMaster().getName().lower():
+            return True
+    return False
 
 
 class MacroPinDiodes(DiodeInserter):
@@ -24,16 +36,20 @@ class MacroPinDiodes(DiodeInserter):
             if not master.isBlock() or not master.getName().startswith(self.macro_prefix):
                 continue
             n = 0
+            skipped = 0
             for it in inst.getITerms():
                 if not it.isInputSignal():
                     continue
                 net = it.getNet()
                 if net is None or net.isSpecial():
                     continue
+                if tie_driven(net):        # Polyglot: a tie cell's output is a short local net
+                    skipped += 1
+                    continue
                 self.insert_diode(net, it, None)
                 n += 1
             self.count += n
-            print(f"[INFO] {inst.getName()}: diodes on {n} input pins")
+            print(f"[INFO] {inst.getName()}: diodes on {n} input pins, {skipped} tie-driven pins skipped")
 
 
 @click.command()

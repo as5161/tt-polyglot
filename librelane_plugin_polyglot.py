@@ -32,7 +32,7 @@ from librelane.config import Variable
 from librelane.steps import Step
 from librelane.steps.odb import OdbpyStep
 from librelane.steps.openroad import DetailedPlacement
-from librelane.steps.step import CompositeStep
+from librelane.steps.step import CompositeStep, StepError
 
 HERE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "flow")
 
@@ -88,6 +88,39 @@ class DiodesOnSramPins(CompositeStep):
     id = "Project.DiodesOnSramPins"
     name = "Diodes on SRAM Pins"
     Steps = [SramPinDiodePlacement, DetailedPlacement]
+
+
+@Step.factory.register()
+class StopAfterGlobalRouting(Step):
+    """Routing probe: replaces OpenROAD.DetailedRouting so a build ends about an
+    hour in, right after global routing, with the congestion report printed.
+    Gate for full builds: total overflow must be low enough for detailed
+    routing to clear (Wirelingo's data: a few hundred at most).  Probe
+    branches only; never on a branch meant to produce a GDS."""
+    id = "Project.StopAfterGlobalRouting"
+    name = "Routing probe: stop after global routing"
+    inputs = []
+    outputs = []
+
+    def run(self, state_in, **kwargs):
+        import glob
+        run_dir = os.path.dirname(self.step_dir)
+        logs = sorted(glob.glob(os.path.join(run_dir, "*-openroad-globalrouting", "*.log")))
+        report = "(global routing log not found)"
+        if logs:
+            text = open(logs[-1]).read()
+            i = text.find("Final congestion report")
+            if i >= 0:
+                report = text[i:i + 1400]
+        m = state_in.metrics
+        keys = [k for k in m if k.startswith("global_route__") or k.startswith("design__instance__utilization")
+                or k in ("design__instance__count", "design__instance__count__class:buffer", "design__instance__count__class:antenna_cell")]
+        summary = "\n".join(f"{k} = {m[k]}" for k in sorted(keys))
+        msg = "ROUTING PROBE RESULT\n" + report + "\n" + summary
+        print(msg)
+        with open(os.path.join(self.step_dir, "probe.txt"), "w") as f:
+            f.write(msg + "\n")
+        raise StepError("routing probe finished (this branch stops after global routing on purpose)")
 
 
 # --- netgen writes the IHP SRAM's power pin names (VDD!, VSS!, VDDARRAY!) into
