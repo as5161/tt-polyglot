@@ -24,7 +24,8 @@ import json
 R_CTRL, R_STEP, R_FLAGS, R_FIFOSTAT, R_PINS, R_ID = 0xA0, 0xA1, 0xA2, 0xA3, 0xA4, 0xA5
 R_POLY = 0xA8
 CHIP_ID = 0x504702
-IMEM_WORDS = 128          # words per core bank
+IMEM_WORDS = 256          # words per core bank (two 128-word pages)
+PAGE_WORDS = 128          # JMP and wrap are in-page: a program must not cross a page
 BANK_BASE = 0x400         # IMEM of core c: BANK_BASE + 0x100 * c
 
 
@@ -94,11 +95,13 @@ class Polyglot:
         o = self.next_origin[core] if origin is None else origin
         if o + len(words) > IMEM_WORDS:
             raise ValueError("IMEM full")
+        if (o % PAGE_WORDS) + len(words) > PAGE_WORDS:
+            raise ValueError("program would cross a 128-word page")
         reloc = [(w & ~0x7F) | ((w + o) & 0x7F) if (w >> 20) & 15 == 0 else w for w in words]
         self.write(BANK_BASE + 0x100 * core + o, *reloc)
         wb, wt = regs[1] & 0x7F, (regs[1] >> 7) & 0x7F
         regs = list(regs)
-        regs[1] = (regs[1] & ~0x3FFF) | (wb + o) | ((wt + o) << 7)
+        regs[1] = (regs[1] & ~0x3FFF) | ((wb + o) & 0x7F) | (((wt + o) & 0x7F) << 7)
         self.write(creg(core, 0), *regs)
         self.write(R_POLY + core, poly)
         self.write(creg(core, 6), o)

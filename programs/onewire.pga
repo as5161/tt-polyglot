@@ -1,0 +1,43 @@
+; 1-Wire (Dallas/Maxim) bus master on uio6, open-drain (external pull-up).
+; 1 tick = 1 us: clkdiv 60 at 60 MHz.
+; TX word: bit0 = 1 -> bus reset; RX gets the presence bit (0 = a device answered).
+;          bit0 = 0 -> one byte: bits 8:1 are sent LSB first; every slot is
+;          also a read slot, so RX gets the 8 sampled bits.  Send 0xFF to read.
+; Slot (66 us): low 6 us, then the bit (1 releases), sample at 14 us,
+; release at 60 us, 5 us recovery.  Reset: low 480 us, sample 70 us after
+; release, then wait out the rest of the 480 us presence window.
+.program onewire
+.clkdiv 60
+.opendrain
+.set     uio6 1
+.out     uio6 1
+.in      uio6
+.shift   out right
+.shift   in right autopush 8
+top:
+    pull
+    out x, 1
+    jmp !x byte
+    set pins, 0                  ; reset pulse
+    set y, 15
+rlow:
+    jmp y-- rlow    [29]         ; 16 x 30 us = 480 us low
+    set pins, 1     [31]         ; release
+    nop             [31]
+    nop             [5]          ; 70 us after release
+    in pins, 1
+    push                         ; presence bit (0 = device present)
+    set y, 13
+rwait:
+    jmp y-- rwait   [29]         ; rest of the 480 us window
+    jmp top
+byte:
+    set y, 7
+bit:
+    set pins, 0     [5]          ; 6 us low starts the slot
+    out pins, 1     [7]          ; write the bit (1 = release)
+    in pins, 1      [31]         ; sample at 14 us (read slot / echo of a write)
+    nop             [13]         ; hold to 60 us
+    set pins, 1     [4]          ; release, 5 us recovery
+    jmp y-- bit
+    jmp top

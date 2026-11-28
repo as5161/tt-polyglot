@@ -41,7 +41,8 @@ MOV_SRC = {"pins": 0, "x": 1, "y": 2, "null": 3, "crc": 4, "time": 5, "isr": 6, 
            "status": 8}
 SET_DST = {"pins": 0, "x": 1, "y": 2, "crc": 3, "pindirs": 4, "xh": 5, "yh": 6}
 
-IMEM_WORDS = 128  # words per core bank: must match AW in src/project.v (2**AW)
+IMEM_WORDS = 256  # words per core bank: must match AW in src/project.v (2**AW)
+PAGE_WORDS = 128  # JMP targets and wrap are 7 bits: a program lives inside one 128-word page
 
 OP = dict(jmp=0, wait=1, in_=2, out=3, pp=4, mov=5, flag=6, set=7, add=8, nop=15)
 
@@ -57,6 +58,14 @@ def enc(op, a=0, side=None, delay=0):
     w |= (delay & 31) << 11
     w |= a & 0x7FF
     return w
+
+
+def check_page(prog, origin):
+    """JMP targets and the wrap fields are in-page (7 bits), so a program must
+    not straddle a 128-word page boundary."""
+    if (origin % PAGE_WORDS) + len(prog.words) > PAGE_WORDS:
+        raise AsmError(f"{prog.name}: {len(prog.words)} words at origin {origin} cross a "
+                       f"{PAGE_WORDS}-word page boundary")
 
 
 class Program:
@@ -76,8 +85,9 @@ class Program:
     def regs(self, origin=None):
         o = self.origin if origin is None else origin
         c = self.cfg
-        wb = o + (self.wrap_bot if self.wrap_bot is not None else 0)
-        wt = o + (self.wrap_top if self.wrap_top is not None else len(self.words) - 1)
+        check_page(self, o)
+        wb = (o + (self.wrap_bot if self.wrap_bot is not None else 0)) % PAGE_WORDS
+        wt = (o + (self.wrap_top if self.wrap_top is not None else len(self.words) - 1)) % PAGE_WORDS
         return {
             0: c["clkdiv"],
             1: wb | wt << 7 | c["jmp_pin"] << 14 | c["side_pindir"] << 19 | c["od"] << 20,
@@ -90,6 +100,7 @@ class Program:
 
     def relocated(self, origin):
         """Return instruction words relocated to `origin` (JMP targets fixed)."""
+        check_page(self, origin)
         out = []
         for w in self.words:
             if (w >> 20) & 0xF == 0:
@@ -147,8 +158,8 @@ def assemble(src, name="prog"):
             prog.words.append(_instr(line, prog.labels, defines))
         except AsmError as e:
             raise AsmError(f"{name}:{lineno}: {e}") from None
-    if len(prog.words) > IMEM_WORDS:
-        raise AsmError(f"{name}: program too long ({len(prog.words)} > {IMEM_WORDS})")
+    if len(prog.words) > PAGE_WORDS:
+        raise AsmError(f"{name}: program too long ({len(prog.words)} > {PAGE_WORDS}, one page)")
     return prog
 
 

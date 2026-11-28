@@ -74,7 +74,7 @@ def main(argv=None):
     ap.add_argument("--clkdiv", type=int, help="override clkdiv of all programs")
     ap.add_argument("--vcd")
     ns = ap.parse_args(argv)
-    m = Cluster()
+    m = Cluster(aw=8)
     bus = Bus(m)
     try:
         progs = [load_file(p) for p in ns.programs]
