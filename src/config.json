@@ -97,6 +97,8 @@
   "MAGIC_EXT_ABSTRACT_CELLS": ["RM_IHPSG13_.*"],
 
   "//threads": "LibreLane runs OpenROAD single-threaded unless this is set; GitHub runners have 4 CPUs",
+  "GRT_ADJUSTMENT": 0.1,
+  "//grt": "Wirelingo builds at 0.1; LibreLane default 0.3 derates routing capacity by 30 %",
   "OPENROAD_THREADS": 4,
 
   "//": "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!",
