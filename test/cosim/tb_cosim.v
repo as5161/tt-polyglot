@@ -41,7 +41,7 @@ module tb_cosim;
       $fwrite(f, "%h %h %h %h %h", rd, pout, poe, u.flags, u.en);
       $fwrite(f, " %h %h %h %h %h %h %h %h %h %h %h %h %h %h", `CORE(0));
       $fwrite(f, " %h %h %h %h %h %h %h %h %h %h %h %h %h %h", `CORE(1));
-      $fwrite(f, " %h %h %h %h %h %h %h %h %h %h %h %h %h %h\n", `CORE(2));
+      $fwrite(f, " %h %h %h %h %h %h %h %h %h %h %h %h %h %h", `CORE(2));
       $fwrite(f, " %h %h %h %h %h %h %h %h %h %h %h %h %h %h\n", `CORE(3));
       #4 clk = 0;
     end
