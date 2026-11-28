@@ -170,16 +170,27 @@ def crc16_modbus(data):
     return c
 
 
+async def last_core(chip):
+    """Index of the highest core on this build (src/project.v sets NC): EN
+    keeps only the bits of cores that exist."""
+    await chip.write(H.R_CTRL, 0xF)
+    en = await chip.read(H.R_CTRL)
+    await chip.write(H.R_CTRL, 0)
+    assert en in (0x1, 0x3, 0x7, 0xF), hex(en)
+    return bin(en).count("1") - 1
+
+
 # ------------------------------------------------------------------ tests
 @cocotb.test()
 async def test_host_interface(dut):
     """ID, IMEM/register read-back, EXEC injection, single-step."""
     chip = await setup(dut)
     assert await chip.read(H.R_ID) == H.CHIP_ID
-    await chip.write(H.imem(2, 5), 0x00BEEF)
-    await chip.write(H.imem(3, 5), 0x123456, 0xABCDEF, 0x0F0F0F)
-    assert await chip.read(H.imem(3, 5), 3) == [0x123456, 0xABCDEF, 0x0F0F0F]
-    assert await chip.read(H.imem(2, 5)) == 0x00BEEF    # banks are separate
+    L = await last_core(chip)
+    await chip.write(H.imem(L - 1, 5), 0x00BEEF)
+    await chip.write(H.imem(L, 5), 0x123456, 0xABCDEF, 0x0F0F0F)
+    assert await chip.read(H.imem(L, 5), 3) == [0x123456, 0xABCDEF, 0x0F0F0F]
+    assert await chip.read(H.imem(L - 1, 5)) == 0x00BEEF    # banks are separate
     assert await chip.read(0x00) == 0                   # page 0 below 0x80 is unmapped
     await chip.write(H.creg(2, 3), 0x7FFFF)
     assert await chip.read(H.creg(2, 3)) == 0x7FFFF
@@ -591,15 +602,16 @@ async def test_bank_ownership(dut):
     """A running core's bank is protected: host writes are ignored and reads
     return 0; once the core stops the bank is accessible again."""
     chip = await setup(dut)
+    L = await last_core(chip)            # the highest core (3 on 4-core builds)
     p = asm.assemble("add x, 1\njmp 0")
-    await chip.load(p, 3, 0)
-    await chip.start(1 << 3)
-    await chip.write(H.imem(3, 0), 0xFFFFFF)            # ignored: core 3 runs
-    assert await chip.read(H.imem(3, 0)) == 0
-    x1 = await chip.read(H.R_DBG_X + 3)
+    await chip.load(p, L, 0)
+    await chip.start(1 << L)
+    await chip.write(H.imem(L, 0), 0xFFFFFF)            # ignored: core L runs
+    assert await chip.read(H.imem(L, 0)) == 0
+    x1 = await chip.read(H.R_DBG_X + L)
     await ClockCycles(dut.clk, 50)
-    assert (await chip.read(H.R_DBG_X + 3) - x1) & 0xFFFF > 10   # program intact
+    assert (await chip.read(H.R_DBG_X + L) - x1) & 0xFFFF > 10   # program intact
     await chip.write(H.R_CTRL, 0)
-    assert await chip.read(H.imem(3, 0), 2) == p.words
+    assert await chip.read(H.imem(L, 0), 2) == p.words
     st = await chip.read(H.R_FIFOSTAT)
-    assert (st >> 7) & 1 and (st >> 15) & 1 and not (st >> 3) & 1   # slot 3 FIFOs empty
+    assert (st >> 7) & 1 and (st >> 15) & 1 and not (st >> 3) & 1   # slot 3 FIFOs empty (or absent)
