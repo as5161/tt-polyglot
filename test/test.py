@@ -172,7 +172,15 @@ def crc16_modbus(data):
 
 async def last_core(chip):
     """Index of the highest core on this build (src/project.v sets NC): EN
-    keeps only the bits of cores that exist."""
+    keeps only the bits of cores that exist.
+
+    Every bank first gets "jmp 0" at word 0 (where a core starts after reset),
+    so the briefly enabled cores spin on a known instruction.  On the
+    gate-level netlist the IHP SRAM model starts as X (silicon: random), and a
+    core executing X would poison its state and the read-back path."""
+    spin = asm.assemble("jmp 0").words[0]
+    for c in range(4):
+        await chip.write(H.imem(c, 0), spin)
     await chip.write(H.R_CTRL, 0xF)
     en = await chip.read(H.R_CTRL)
     await chip.write(H.R_CTRL, 0)
