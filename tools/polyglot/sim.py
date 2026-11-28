@@ -81,7 +81,7 @@ class CoreCfg:
     def __init__(self, aw):
         self.clkdiv = 0
         self.wrap_bot = 0
-        self.wrap_top = (1 << aw) - 1
+        self.wrap_top = (1 << min(aw, 7)) - 1   # 7-bit field (in-page when aw = 8)
         self.jmp_pin = 0
         self.side_pindir = 0
         self.od = 0
@@ -106,6 +106,9 @@ class CoreCfg:
 class Core:
     def __init__(self, aw=7):
         self.aw = aw
+        # JMP and wrap fields are 7 bits: with 256-word banks (aw = 8) they
+        # address the current 128-word page (MOV/OUT PC reach any word)
+        self.page_mask = 0x7F if aw > 7 else (1 << aw) - 1
         self.cfg = CoreCfg(aw)
         self.pc = 0
         self.x = self.y = self.isr = self.osr = self.crc = 0
@@ -181,7 +184,8 @@ class Core:
             elif cond_sel == 10:
                 cond = not self.rx.full
             st["jump"] = cond
-            st["jt"] = a & aw_mask
+            pm = self.page_mask
+            st["jt"] = (self.pc & ~pm & aw_mask) | (a & pm)   # in-page target (128-word pages when aw = 8)
 
         elif op == OP_WAIT:
             pol = (a >> 10) & 1
@@ -389,7 +393,11 @@ class Core:
             if st["jump"]:
                 self.pc = st["jt"]
             elif not st["ev"]:
-                self.pc = self.cfg.wrap_bot if self.pc == self.cfg.wrap_top else (self.pc + 1) & ((1 << self.aw) - 1)
+                pm = self.page_mask
+                if (self.pc & pm) == (self.cfg.wrap_top & pm):
+                    self.pc = (self.pc & ~pm & ((1 << self.aw) - 1)) | (self.cfg.wrap_bot & pm)
+                else:
+                    self.pc = (self.pc + 1) & ((1 << self.aw) - 1)
         elif st["tick"] and not st["ev"] and self.dly != 0:
             self.dly -= 1
         if pc_we:
@@ -408,7 +416,7 @@ class Cluster:
     ID = 0x504702
     BANK_BASE = 0x400          # IMEM of core c: BANK_BASE + 0x100 * c + word
 
-    def __init__(self, aw=7, nc=4):
+    def __init__(self, aw=8, nc=4):
         self.aw = aw
         self.nc = nc
         # one 256-word bank per core slot; dout = the bank's output register,
@@ -540,7 +548,7 @@ class Cluster:
             if w(base + 0):
                 c.clkdiv = hwdata & 0xFFFF
             if w(base + 1):
-                am = (1 << self.aw) - 1
+                am = (1 << min(self.aw, 7)) - 1
                 c.wrap_bot = hwdata & am
                 c.wrap_top = (hwdata >> 7) & am
                 c.jmp_pin = (hwdata >> 14) & 31
