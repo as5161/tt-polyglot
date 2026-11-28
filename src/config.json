@@ -121,10 +121,11 @@
 
   "GRT_ALLOW_CONGESTION": 1,
 
-  "//": "Antennas: fix them before detailed routing (cheap) instead of after (each fix re-runs the ~2-3.5h router).",
-  "//": "gds #9: routing reached 0 violations, then two antenna re-routes ran it past the 6h limit.",
+  "//": "Antennas: fixed before detailed routing (GRT margin 30) and again after it. gds #42 (3-core SRAM)",
+  "//": "left 80 nets up to 3.4x the ratio after DRT with no post-DRT repair; its DRT took ~40 min, so",
+  "//": "post-DRT diode repair (each pass re-runs DRT incrementally) now fits easily in the 6 h limit.",
   "GRT_ANTENNA_REPAIR_MARGIN": 30,
-  "DRT_ANTENNA_REPAIR_ITERS": 0,
+  "DRT_ANTENNA_REPAIR_ITERS": 3,
 
   "FP_IO_HLENGTH": 2,
   "FP_IO_VLENGTH": 2,
