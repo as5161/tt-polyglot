@@ -128,7 +128,7 @@
   "//": "left 80 nets up to 3.4x the ratio after DRT with no post-DRT repair; its DRT took ~40 min, so",
   "//": "post-DRT diode repair (each pass re-runs DRT incrementally) now fits easily in the 6 h limit.",
   "GRT_ANTENNA_REPAIR_MARGIN": 30,
-  "DRT_ANTENNA_REPAIR_ITERS": 3,
+  "DRT_ANTENNA_REPAIR_ITERS": 1,
 
   "FP_IO_HLENGTH": 2,
   "FP_IO_VLENGTH": 2,
