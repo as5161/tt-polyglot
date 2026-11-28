@@ -97,6 +97,8 @@
   "MAGIC_EXT_ABSTRACT_CELLS": ["RM_IHPSG13_.*"],
 
   "//threads": "LibreLane runs OpenROAD single-threaded unless this is set; GitHub runners have 4 CPUs",
+  "//rc": "Measured wire RC (SPEF ~0.19 fF/um vs tech LEF ~0.095); see cores3-antenna gds #18",
+  "LAYERS_RC": {"*": {"Metal1": {"res": 0.00084375, "cap": 0.00014205}, "Metal2": {"res": 0.000515, "cap": 0.00019}, "Metal3": {"res": 0.000515, "cap": 0.00019}, "Metal4": {"res": 0.000515, "cap": 0.00019}}},
   "GRT_ADJUSTMENT": 0.1,
   "//grt": "Wirelingo builds at 0.1; LibreLane default 0.3 derates routing capacity by 30 %",
   "OPENROAD_THREADS": 4,
