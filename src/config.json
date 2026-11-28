@@ -3,8 +3,7 @@
     "flow": "Classic",
     "substituting_steps": {
       "+OpenROAD.GeneratePDN": "Project.ExtendPowerStripes",
-      "+OpenROAD.ResizerTimingPostCTS": "Project.DiodesOnSramPins",
-      "OpenROAD.DetailedRouting": "Project.StopAfterGlobalRouting"
+      "+OpenROAD.ResizerTimingPostCTS": "Project.DiodesOnSramPins"
     }
   },
   "//meta": "Project.* steps: librelane_plugin_polyglot.py (SRAM power stripes and SRAM pin diodes)",
