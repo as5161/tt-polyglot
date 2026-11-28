@@ -47,14 +47,15 @@
 
   "//": "Configuration docs: https://librelane.readthedocs.io/en/latest/reference/configuration.html",
 
-  "//sram": "Instruction banks: one IHP 256x32 SRAM per core along the bottom edge, pins up (FS), spread like josusanmartin/wirelingo's routing-proven 3-bank layout (x = 4.32, 653.28, 1302.72; density 34).",
+  "//sram": "Instruction banks: one IHP 256x32 SRAM per core. Three along the bottom edge, pins up (FS), spread like josusanmartin/wirelingo's routing-proven 3-bank layout (x = 4.32, 653.28, 1302.72; density 34), and the fourth in the top-right corner, pins down (N); the top-left corner holds the tile's I/O pins (x 30..191 um) and stays free. Routing probe probe-v4c: 6 GRT overflows, Metal3 67 %.",
   "VERILOG_DEFINES": ["PG_SRAM_MACRO"],
   "MACROS": {
     "RM_IHPSG13_1P_256x32_c2_bm_bist": {
       "instances": {
         "u_cluster.g_core[0].u_bank.sram": {"location": [4.32, 3.78], "orientation": "FS"},
         "u_cluster.g_core[1].u_bank.sram": {"location": [653.28, 3.78], "orientation": "FS"},
-        "u_cluster.g_core[2].u_bank.sram": {"location": [1302.72, 3.78], "orientation": "FS"}
+        "u_cluster.g_core[2].u_bank.sram": {"location": [1302.72, 3.78], "orientation": "FS"},
+        "u_cluster.g_core[3].u_bank.sram": {"location": [1302.72, 585.90], "orientation": "N"}
       },
       "gds": ["pdk_dir::libs.ref/sg13cmos5l_sram/gds/RM_IHPSG13_1P_256x32_c2_bm_bist.gds"],
       "lef": ["pdk_dir::libs.ref/sg13cmos5l_sram/lef/RM_IHPSG13_1P_256x32_c2_bm_bist.lef"],
@@ -73,7 +74,9 @@
     "u_cluster\\.g_core\\\\?\\[1\\\\?\\]\\.u_bank\\.sram VPWR VGND VDD! VSS!",
     "u_cluster\\.g_core\\\\?\\[1\\\\?\\]\\.u_bank\\.sram VPWR VGND VDDARRAY! VSS!",
     "u_cluster\\.g_core\\\\?\\[2\\\\?\\]\\.u_bank\\.sram VPWR VGND VDD! VSS!",
-    "u_cluster\\.g_core\\\\?\\[2\\\\?\\]\\.u_bank\\.sram VPWR VGND VDDARRAY! VSS!"
+    "u_cluster\\.g_core\\\\?\\[2\\\\?\\]\\.u_bank\\.sram VPWR VGND VDDARRAY! VSS!",
+    "u_cluster\\.g_core\\\\?\\[3\\\\?\\]\\.u_bank\\.sram VPWR VGND VDD! VSS!",
+    "u_cluster\\.g_core\\\\?\\[3\\\\?\\]\\.u_bank\\.sram VPWR VGND VDDARRAY! VSS!"
   ],
   "//pdn": "pdn_cfg.tcl = LibreLane's PDN script without the per-macro grid (it has no shapes with this single-layer PDN; Project.ExtendPowerStripes powers the SRAMs). Stripe pitch 44.96 um = 8 x the SRAM's 5.62 um supply-column pitch. Settings from kdp1965/ihp-um-janestreet-prism.",
   "PDN_CFG": "dir::pdn_cfg.tcl",

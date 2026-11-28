@@ -52,7 +52,7 @@ module tt_um_polyglot (
 
   wire [31:0] pins = {8'h00, ui_s1, miso, pout[14:8], uio_s1};
 
-  pg_cluster #(.AW(8), .NC(3)) u_cluster (   // 3 cores, 256 words each (SRAM banks)
+  pg_cluster #(.AW(8), .NC(4)) u_cluster (   // 4 cores, 256 words each (SRAM banks)
       .clk(clk), .rst_n(rst_n),
       .hw_en(hw_en), .hr_en(hr_en), .hr_peek(hr_peek), .haddr(haddr),
       .hwdata(hwdata), .hrdata(hrdata),
