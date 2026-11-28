@@ -12,7 +12,7 @@ module tb_cosim;
   wire [23:0] hrdata;
   wire [15:0] pout, poe;
 
-  pg_cluster #(.AW(7), .NC(4)) u (
+  pg_cluster #(.AW(8), .NC(4)) u (
     .clk(clk), .rst_n(rst_n), .hw_en(hw_en), .hr_en(hr_en), .hr_peek(hr_peek), .haddr(haddr),
     .hwdata(hwdata), .hrdata(hrdata),
     .sh_ld(1'b0), .sh_shift(1'b0), .sh_clr(1'b1), .rd_msb(), .rd_d23(),   // serial read-back: covered by test/test.py over SPI

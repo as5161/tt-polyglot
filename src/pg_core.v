@@ -170,6 +170,10 @@ module pg_core #(
   reg         stall;
   reg         jump;
   reg [AW-1:0] jtarget;
+  // Banks larger than 128 words (AW = 8) are used as 128-word pages: the
+  // 7-bit JMP field and the 7-bit wrap fields address the current page, and
+  // MOV/OUT PC (and a host PC write) reach any word.  PM = in-page bits.
+  localparam [AW-1:0] PM = (AW > 7) ? 127 : {AW{1'b1}};
   reg [15:0]  nx, ny, nisr, nosr, ncrc;
   reg [4:0]   nisr_cnt, nosr_cnt;
 
@@ -263,7 +267,7 @@ module pg_core #(
           default: cond = 1'b0;
         endcase
         jump    = cond;
-        jtarget = a[AW-1:0];
+        jtarget = (pc & ~PM) | (a[AW-1:0] & PM);
       end
 
       // ------------------------------------------------------------ WAIT
@@ -454,7 +458,7 @@ module pg_core #(
   assign exec_done = exec_valid & ~stall;
 
   // ---------------------------------------------------------------- sequential
-  wire [AW-1:0] pc_inc = (pc == wrap_top) ? wrap_bot : pc + 1'b1;
+  wire [AW-1:0] pc_inc = ((pc & PM) == (wrap_top & PM)) ? ((pc & ~PM) | (wrap_bot & PM)) : pc + 1'b1;
 
   // next PC is computed combinationally so the cluster can fetch imem[pc_next]
   // into ir_q in the same cycle: the IMEM read mux leaves the execute path.
