@@ -21,7 +21,7 @@ sys.path.insert(0, os.path.join(ROOT, "tools"))
 from polyglot.sim import Cluster  # noqa: E402
 from polyglot.asm import disassemble  # noqa: E402
 
-DEPTH = 128  # words per core bank (AW=7)
+DEPTH = 256  # words per core bank (AW=8: two 128-word pages)
 NC = 4       # cores (project.v)
 BANK = 0x400  # IMEM of core c: BANK + 0x100 * c + word
 SRC = ["pg_cluster.v", "pg_core.v", "pg_fifo.v", "pg_bank.v"]
@@ -68,14 +68,14 @@ def gen(seed, cycles):
                                              for i, w in enumerate(WEIGHTS)]
     # each core gets its own random image; a short program region keeps most
     # control flow inside it
-    plen = r.choice([24, 48, DEPTH])
+    plen = r.choice([24, 48, 128, DEPTH])
     for c in range(4):
         for i in range(plen):
             op(1, 0, BANK + 0x100 * c + i, rand_instr(r, mode, wts))
     for c in range(4):
         b = 0x80 + 8 * c
         op(1, 0, b + 0, r.choice([0, 0, 1, 2, 3, r.randrange(8)]))
-        wb, wt = sorted([r.randrange(plen), r.randrange(plen)])
+        wb, wt = sorted([r.randrange(min(plen, 128)), r.randrange(min(plen, 128))])   # 7-bit in-page fields
         op(1, 0, b + 1, wb | wt << 7 | r.randrange(32) << 14 | r.getrandbits(2) << 19)
         op(1, 0, b + 2, r.getrandbits(17))
         pb = lambda: r.choice([r.randrange(32), r.randrange(4), r.randrange(8, 12)])  # noqa: E731
@@ -108,7 +108,7 @@ def gen(seed, cycles):
             elif k < 0.76:
                 op(1, 0, b + 7, rand_instr(r, mode, wts))          # exec
             elif k < 0.8:
-                op(1, 0, b + 6, r.randrange(128))             # pc
+                op(1, 0, b + 6, r.randrange(DEPTH))           # pc
             elif k < 0.85:
                 op(1, 0, 0xA0, r.getrandbits(16))             # ctrl
             elif k < 0.89:
@@ -153,7 +153,7 @@ def run(seed, cycles, workdir, verbose=False):
     if True:
         rtl = [[int(t, 16) if not set(t) & set("xXzZ") else t for t in ln.split()] for ln in txt.splitlines()]
 
-    m = Cluster()
+    m = Cluster(aw=8)
     for c in m.cores:
         c.cov = COV
     for cyc, (hw, hr, addr, data, pk, pins) in enumerate(stim):
